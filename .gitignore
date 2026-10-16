@@ -1,0 +1,26 @@
+# Python environments and bytecode
+backend/.venv/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+test-results/
+playwright-report/
+*.sqlite3
+*.db
+
+# Local settings and secrets
+.env
+.env.*
+!.env.example
+
+# Logs and editor/OS files
+*.log
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini

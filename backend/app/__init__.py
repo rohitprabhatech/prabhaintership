@@ -1,0 +1,1 @@
+"""Prabha Internship Management API."""
