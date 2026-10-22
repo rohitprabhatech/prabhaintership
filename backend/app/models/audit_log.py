@@ -1,10 +1,20 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import BigInteger, CheckConstraint, JSON, String, Uuid, ForeignKey, Index, Text, func, text
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    CheckConstraint,
+    ForeignKey,
+    Index,
+    String,
+    Uuid,
+    func,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base, DATABASE_SCHEMA
+from app.db.base import DATABASE_SCHEMA, Base
 from app.db.types import UTCDateTime
 
 
@@ -14,17 +24,17 @@ class AuditLog(Base):
         CheckConstraint("length(trim(action)) > 0", name="ck_audit_action_not_blank"),
         CheckConstraint("outcome IN ('success', 'failure', 'denied')", name="ck_audit_outcome"),
         CheckConstraint("JSON_TYPE(metadata) = 'OBJECT'", name="ck_audit_metadata_object"),
-        Index("ix_audit_logs_time", text("occurred_at DESC"), text("audit_log_id DESC")),
+        Index("ix_audit_logs_time", "occurred_at", "audit_log_id"),
         Index(
             "ix_audit_logs_target_time",
             "target_type",
             "target_id",
-            text("occurred_at DESC"),
+            "occurred_at",
         ),
         Index(
             "ix_audit_logs_actor_time",
             "actor_admin_id",
-            text("occurred_at DESC"),
+            "occurred_at",
         ),
         {"schema": DATABASE_SCHEMA},
     )
@@ -41,7 +51,9 @@ class AuditLog(Base):
     action: Mapped[str] = mapped_column(String(64), nullable=False)
     target_type: Mapped[str | None] = mapped_column(String(64))
     target_id: Mapped[int | None] = mapped_column(BigInteger)
-    outcome: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'success'"))
+    outcome: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default=text("'success'")
+    )
     occurred_at: Mapped[datetime] = mapped_column(
         UTCDateTime(), nullable=False, server_default=func.current_timestamp()
     )

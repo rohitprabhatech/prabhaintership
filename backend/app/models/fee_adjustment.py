@@ -9,14 +9,14 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Numeric,
-    Text,
+    String,
     UniqueConstraint,
     Uuid,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.base import Base, DATABASE_SCHEMA
+from app.db.base import DATABASE_SCHEMA, Base
 from app.db.types import UTCDateTime
 
 
@@ -44,10 +44,10 @@ class FeeAdjustment(Base):
         ),
         nullable=False,
     )
-    adjustment_type: Mapped[str] = mapped_column(Text, nullable=False)
+    adjustment_type: Mapped[str] = mapped_column(String(20), nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
     idempotency_key: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
-    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(String(500), nullable=False)
     approved_by: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey(

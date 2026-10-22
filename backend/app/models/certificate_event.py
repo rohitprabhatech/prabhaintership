@@ -4,17 +4,15 @@ from sqlalchemy import (
     BigInteger,
     CheckConstraint,
     Computed,
-    DateTime,
     ForeignKey,
     Index,
     String,
     Text,
     func,
-    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base, DATABASE_SCHEMA
+from app.db.base import DATABASE_SCHEMA, Base
 from app.db.types import UTCDateTime
 
 
@@ -34,8 +32,8 @@ class CertificateEvent(Base):
         Index(
             "ix_certificate_events_certificate_time",
             "certificate_id",
-            text("occurred_at DESC"),
-            text("certificate_event_id DESC"),
+            "occurred_at",
+            "certificate_event_id",
         ),
         Index(
             "ux_certificate_events_one_terminal_state",
@@ -60,7 +58,10 @@ class CertificateEvent(Base):
     event_type: Mapped[str] = mapped_column(String(16), nullable=False)
     terminal_certificate_id: Mapped[int | None] = mapped_column(
         BigInteger,
-        Computed("CASE WHEN event_type IN ('replaced', 'revoked') THEN certificate_id ELSE NULL END", persisted=True),
+        Computed(
+            "CASE WHEN event_type IN ('replaced', 'revoked') THEN certificate_id ELSE NULL END",
+            persisted=True,
+        ),
     )
     related_certificate_id: Mapped[int | None] = mapped_column(
         BigInteger,
@@ -73,7 +74,7 @@ class CertificateEvent(Base):
     occurred_at: Mapped[datetime] = mapped_column(
         UTCDateTime(), nullable=False, server_default=func.current_timestamp()
     )
-    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(String(500), nullable=False)
     recorded_by: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey(

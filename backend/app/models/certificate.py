@@ -3,18 +3,15 @@ from datetime import datetime
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
-    DateTime,
     ForeignKey,
     Index,
     String,
-    Text,
     UniqueConstraint,
     func,
-    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base, DATABASE_SCHEMA
+from app.db.base import DATABASE_SCHEMA, Base
 from app.db.types import UTCDateTime
 
 
@@ -32,7 +29,7 @@ class Certificate(Base):
         Index(
             "ix_certificates_enrollment_issued",
             "enrollment_id",
-            text("issued_at DESC"),
+            "issued_at",
         ),
         Index(
             "ix_certificates_replaces",

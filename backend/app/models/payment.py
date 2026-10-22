@@ -6,12 +6,10 @@ from sqlalchemy import (
     CHAR,
     BigInteger,
     CheckConstraint,
-    DateTime,
     ForeignKey,
     Index,
     Numeric,
     String,
-    Text,
     UniqueConstraint,
     Uuid,
     func,
@@ -19,7 +17,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base, DATABASE_SCHEMA
+from app.db.base import DATABASE_SCHEMA, Base
 from app.db.types import UTCDateTime
 
 
@@ -37,7 +35,7 @@ class Payment(Base):
             "payment_reference IS NULL OR length(trim(payment_reference)) > 0",
             name="ck_payments_reference_not_blank",
         ),
-        Index("ux_payments_idempotency_key", "idempotency_key", unique=True),
+        UniqueConstraint("idempotency_key", name="uq_payments_idempotency_key"),
         Index(
             "ux_payments_method_reference",
             "payment_method",
@@ -45,7 +43,7 @@ class Payment(Base):
             unique=True,
         ),
         Index(
-            "ix_payments_enrollment_paid_at", "enrollment_id", text("paid_at DESC"), "payment_id"
+            "ix_payments_enrollment_paid_at", "enrollment_id", "paid_at", "payment_id"
         ),
         {"schema": DATABASE_SCHEMA},
     )

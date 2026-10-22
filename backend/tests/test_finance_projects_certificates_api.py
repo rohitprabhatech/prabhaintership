@@ -8,7 +8,6 @@ from pydantic import ValidationError
 from sqlalchemy import func, select
 
 from app.models.payment import Payment
-
 from app.schemas.finance import FeeAdjustmentCreate, PaymentCreate
 
 
@@ -168,7 +167,9 @@ def test_payment_rejects_invalid_enrollment_and_requires_admin(api_client, admin
 
 
 @pytest.mark.integration
-def test_payment_reference_conflict_rolls_back_insert(api_client, admin_headers, db_session) -> None:
+def test_payment_reference_conflict_rolls_back_insert(
+    api_client, admin_headers, db_session
+) -> None:
     _, _, first_enrollment = create_enrollment(api_client, admin_headers)
     _, _, second_enrollment = create_enrollment(api_client, admin_headers)
     reference = f"QA-{uuid4().hex}"
@@ -301,6 +302,87 @@ def test_refund_cannot_exceed_receipt_and_reversal_must_be_full(api_client, admi
     )
     assert excess.status_code == 409
     assert partial_reversal.status_code == 422
+
+
+@pytest.mark.integration
+def test_fee_adjustments_and_revision_preserve_one_current_term(api_client, admin_headers) -> None:
+    _, _, enrollment = create_enrollment(api_client, admin_headers)
+    enrollment_id = enrollment["enrollment_id"]
+
+    for adjustment_type, amount in (("discount", "1000.00"), ("fee_increase", "500.00")):
+        response = api_client.post(
+            f"/api/v1/enrollments/{enrollment_id}/fee-adjustments",
+            headers={**admin_headers, "Idempotency-Key": str(uuid4())},
+            json={
+                "adjustment_type": adjustment_type,
+                "amount": amount,
+                "reason": f"Approved {adjustment_type}",
+            },
+        )
+        assert response.status_code == 201
+
+    payment = post_payment(api_client, admin_headers, enrollment_id, "2500.00")
+    assert payment.status_code == 201
+
+    revision = api_client.post(
+        f"/api/v1/enrollments/{enrollment_id}/fee-terms",
+        headers=admin_headers,
+        json={"agreed_amount": "9000.00", "reason": "Approved revised fee"},
+    )
+    assert revision.status_code == 201
+    terms = api_client.get(
+        f"/api/v1/enrollments/{enrollment_id}/fee-terms", headers=admin_headers
+    )
+    assert terms.status_code == 200
+    assert len(terms.json()) == 2
+    assert sum(term["effective_to"] is None for term in terms.json()) == 1
+
+    invalid_revision = api_client.post(
+        f"/api/v1/enrollments/{enrollment_id}/fee-terms",
+        headers=admin_headers,
+        json={"agreed_amount": "2000.00", "reason": "Below net payments"},
+    )
+    assert invalid_revision.status_code == 409
+    after_rejection = api_client.get(
+        f"/api/v1/enrollments/{enrollment_id}/fee-terms", headers=admin_headers
+    )
+    assert len(after_rejection.json()) == 2
+    assert sum(term["effective_to"] is None for term in after_rejection.json()) == 1
+
+
+@pytest.mark.integration
+def test_partial_refund_then_full_remaining_reversal_updates_balance(
+    api_client, admin_headers
+) -> None:
+    _, _, enrollment = create_enrollment(api_client, admin_headers)
+    payment = post_payment(api_client, admin_headers, enrollment["enrollment_id"], "4000.00")
+    payment_id = payment.json()["payment_id"]
+
+    refund = api_client.post(
+        f"/api/v1/payments/{payment_id}/adjustments",
+        headers={**admin_headers, "Idempotency-Key": str(uuid4())},
+        json={"adjustment_type": "refund", "amount": "1000.00", "reason": "Partial refund"},
+    )
+    reversal = api_client.post(
+        f"/api/v1/payments/{payment_id}/adjustments",
+        headers={**admin_headers, "Idempotency-Key": str(uuid4())},
+        json={"adjustment_type": "reversal", "amount": "3000.00", "reason": "Reverse remainder"},
+    )
+    assert refund.status_code == 201
+    assert reversal.status_code == 201
+
+    payments = api_client.get(
+        f"/api/v1/enrollments/{enrollment['enrollment_id']}/payments?page=1&page_size=10",
+        headers=admin_headers,
+    )
+    assert payments.status_code == 200
+    assert payments.json()["items"][0]["derived_status"] == "reversed"
+    assert payments.json()["items"][0]["net_amount"] == "0.00"
+    summary = api_client.get(
+        f"/api/v1/enrollments/{enrollment['enrollment_id']}/fees", headers=admin_headers
+    )
+    assert summary.json()["net_paid"] == "0.00"
+    assert summary.json()["pending_balance"] == "10000.00"
 
 
 @pytest.mark.integration

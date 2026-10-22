@@ -6,18 +6,16 @@ from sqlalchemy import (
     BigInteger,
     CheckConstraint,
     Computed,
-    DateTime,
     ForeignKey,
     Index,
     Numeric,
     String,
-    Text,
     func,
     text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base, DATABASE_SCHEMA
+from app.db.base import DATABASE_SCHEMA, Base
 from app.db.types import UTCDateTime
 
 
@@ -36,7 +34,7 @@ class EnrollmentFeeTerm(Base):
             "current_enrollment_id",
             unique=True,
         ),
-        Index("ix_fee_terms_enrollment_history", "enrollment_id", text("effective_from DESC")),
+        Index("ix_fee_terms_enrollment_history", "enrollment_id", "effective_from"),
         {"schema": DATABASE_SCHEMA},
     )
 

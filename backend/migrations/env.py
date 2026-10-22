@@ -19,9 +19,56 @@ config.set_main_option("sqlalchemy.url", migration_url.replace("%", "%%"))
 target_metadata = Base.metadata
 
 
+def _foreign_key_matches_across_default_schema(foreign_key, other) -> bool:
+    if foreign_key.table.name != other.table.name:
+        return False
+
+    def signature(constraint):
+        return (
+            constraint.name,
+            tuple(column.name for column in constraint.columns),
+            tuple(
+                (element.column.table.name, element.column.name)
+                for element in constraint.elements
+            ),
+            constraint.ondelete,
+            constraint.onupdate,
+            constraint.deferrable,
+            constraint.initially,
+            constraint.match,
+        )
+
+    if signature(foreign_key) != signature(other):
+        return False
+    schemas = [
+        foreign_key.table.schema,
+        other.table.schema,
+        *(element.column.table.schema for element in foreign_key.elements),
+        *(element.column.table.schema for element in other.elements),
+    ]
+    return all(schema in (None, database_schema) for schema in schemas)
+
+
 def include_object(object_, name, type_, reflected, compare_to):
     if type_ == "table" and name == "alembic_version":
         return False
+    if (
+        type_ == "foreign_key_constraint"
+        and compare_to is not None
+        and _foreign_key_matches_across_default_schema(object_, compare_to)
+    ):
+        return False
+    return True
+
+
+def include_name(name, type_, parent_names):
+    if type_ == "schema":
+        return name in (None, database_schema)
+    if type_ == "table":
+        return (
+            parent_names.get("schema_name") in (None, database_schema)
+            and name != "alembic_version"
+        )
     return True
 
 
@@ -51,6 +98,7 @@ def run_migrations_online() -> None:
             connection=connection,
             target_metadata=target_metadata,
             include_schemas=True,
+            include_name=include_name,
             include_object=include_object,
             version_table_schema=database_schema,
             compare_type=True,

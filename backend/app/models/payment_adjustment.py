@@ -10,7 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Numeric,
-    Text,
+    String,
     UniqueConstraint,
     Uuid,
     func,
@@ -18,7 +18,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.base import Base, DATABASE_SCHEMA
+from app.db.base import DATABASE_SCHEMA, Base
 from app.db.types import UTCDateTime
 
 
@@ -51,17 +51,20 @@ class PaymentAdjustment(Base):
         ),
         nullable=False,
     )
-    adjustment_type: Mapped[str] = mapped_column(Text, nullable=False)
+    adjustment_type: Mapped[str] = mapped_column(String(16), nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
     idempotency_key: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
     reversal_payment_id: Mapped[int | None] = mapped_column(
         BigInteger,
-        Computed("CASE WHEN adjustment_type = 'reversal' THEN payment_id ELSE NULL END", persisted=True),
+        Computed(
+            "CASE WHEN adjustment_type = 'reversal' THEN payment_id ELSE NULL END",
+            persisted=True,
+        ),
     )
     occurred_at: Mapped[datetime] = mapped_column(
         UTCDateTime(), nullable=False, server_default=func.current_timestamp()
     )
-    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(String(500), nullable=False)
     recorded_by: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey(

@@ -4,7 +4,6 @@ from sqlalchemy import (
     BigInteger,
     CheckConstraint,
     Computed,
-    DateTime,
     ForeignKey,
     Index,
     String,
@@ -15,7 +14,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base, DATABASE_SCHEMA
+from app.db.base import DATABASE_SCHEMA, Base
 from app.db.types import UTCDateTime
 
 
@@ -36,7 +35,7 @@ class Student(Base):
             unique=True,
         ),
         Index("ix_students_name_lower", "name_search_key"),
-        Index("ix_students_status_created", "status", text("created_at DESC")),
+        Index("ix_students_status_created", "status", "created_at"),
         {"schema": DATABASE_SCHEMA},
     )
 

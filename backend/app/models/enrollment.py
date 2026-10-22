@@ -5,19 +5,17 @@ from sqlalchemy import (
     CheckConstraint,
     Computed,
     Date,
-    DateTime,
     ForeignKey,
     ForeignKeyConstraint,
     Index,
     String,
-    Text,
     UniqueConstraint,
     func,
     text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base, DATABASE_SCHEMA
+from app.db.base import DATABASE_SCHEMA, Base
 from app.db.types import UTCDateTime
 
 
@@ -43,7 +41,7 @@ class Enrollment(Base):
             name="ck_enrollments_status",
         ),
         CheckConstraint("ends_on IS NULL OR ends_on >= starts_on", name="ck_enrollments_dates"),
-        Index("ix_enrollments_student_created", "student_id", text("created_at DESC")),
+        Index("ix_enrollments_student_created", "student_id", "created_at"),
         Index("ix_enrollments_program_status", "program_id", "status", "starts_on"),
         Index(
             "ix_enrollments_batch_status",
@@ -110,7 +108,9 @@ class Enrollment(Base):
         onupdate=func.current_timestamp(),
     )
     student: Mapped["Student"] = relationship("Student", back_populates="enrollments")
-    program: Mapped["InternshipProgram"] = relationship("InternshipProgram", back_populates="enrollments")
+    program: Mapped["InternshipProgram"] = relationship(
+        "InternshipProgram", back_populates="enrollments"
+    )
     batch: Mapped["Batch"] = relationship(
         "Batch",
         primaryjoin=(

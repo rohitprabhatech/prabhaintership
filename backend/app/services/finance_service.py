@@ -3,7 +3,7 @@ from decimal import Decimal
 from math import ceil
 from uuid import UUID
 
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import Session
 
 from app.errors import APIError
@@ -90,27 +90,30 @@ def revise_fee_term(
         created_by=admin_id,
     )
     session.add(term)
-    session.flush()
-    _add_audit(
-        session,
-        admin_id,
-        "enrollment_fee_revised",
-        "enrollment_fee_term",
-        term.fee_term_id,
-        request_id,
-        {
-            "enrollment_id": enrollment_id,
-            "amount": str(payload.agreed_amount),
-            "reason": payload.reason,
-        },
-    )
     try:
+        session.flush()
+        _add_audit(
+            session,
+            admin_id,
+            "enrollment_fee_revised",
+            "enrollment_fee_term",
+            term.fee_term_id,
+            request_id,
+            {
+                "enrollment_id": enrollment_id,
+                "amount": str(payload.agreed_amount),
+                "reason": payload.reason,
+            },
+        )
         session.commit()
     except IntegrityError:
         session.rollback()
         raise APIError(
             409, "fee_revision_conflict", "Fee revision conflicts with the ledger"
         ) from None
+    except DBAPIError:
+        session.rollback()
+        raise
     session.refresh(term)
     return FeeTermResponse.model_validate(term)
 
@@ -164,21 +167,21 @@ def create_fee_adjustment(
         idempotency_key=idempotency_key,
     )
     session.add(adjustment)
-    session.flush()
-    _add_audit(
-        session,
-        admin_id,
-        f"fee_{payload.adjustment_type}_approved",
-        "fee_adjustment",
-        adjustment.fee_adjustment_id,
-        request_id,
-        {
-            "enrollment_id": enrollment_id,
-            "amount": str(payload.amount),
-            "reason": payload.reason,
-        },
-    )
     try:
+        session.flush()
+        _add_audit(
+            session,
+            admin_id,
+            f"fee_{payload.adjustment_type}_approved",
+            "fee_adjustment",
+            adjustment.fee_adjustment_id,
+            request_id,
+            {
+                "enrollment_id": enrollment_id,
+                "amount": str(payload.amount),
+                "reason": payload.reason,
+            },
+        )
         session.commit()
     except IntegrityError:
         session.rollback()
@@ -188,6 +191,9 @@ def create_fee_adjustment(
         raise APIError(
             409, "fee_adjustment_conflict", "Fee adjustment conflicts with the ledger"
         ) from None
+    except DBAPIError:
+        session.rollback()
+        raise
     session.refresh(adjustment)
     return FeeAdjustmentResponse.model_validate(adjustment), False
 
@@ -273,6 +279,9 @@ def post_payment(
             "payment_conflict",
             "Payment reference or idempotency key conflicts with an existing receipt",
         ) from None
+    except DBAPIError:
+        session.rollback()
+        raise
     status_row = repository.get_payment_status(payment.payment_id)
     return PaymentResponse.model_validate(status_row), False
 
@@ -345,17 +354,17 @@ def create_payment_adjustment(
         recorded_by=admin_id,
     )
     session.add(adjustment)
-    session.flush()
-    _add_audit(
-        session,
-        admin_id,
-        f"payment_{payload.adjustment_type}",
-        "payment_adjustment",
-        adjustment.adjustment_id,
-        request_id,
-        {"payment_id": payment_id, "amount": str(payload.amount), "reason": payload.reason},
-    )
     try:
+        session.flush()
+        _add_audit(
+            session,
+            admin_id,
+            f"payment_{payload.adjustment_type}",
+            "payment_adjustment",
+            adjustment.adjustment_id,
+            request_id,
+            {"payment_id": payment_id, "amount": str(payload.amount), "reason": payload.reason},
+        )
         session.commit()
     except IntegrityError:
         session.rollback()
@@ -365,6 +374,9 @@ def create_payment_adjustment(
         raise APIError(
             409, "payment_adjustment_conflict", "Payment adjustment conflicts with the ledger"
         ) from None
+    except DBAPIError:
+        session.rollback()
+        raise
     session.refresh(adjustment)
     return PaymentAdjustmentResponse.model_validate(adjustment), False
 
