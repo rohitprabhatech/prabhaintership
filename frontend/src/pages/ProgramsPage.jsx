@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { Plus, SquarePen } from 'lucide-react'
+import { Plus, SquarePen, Trash2 } from 'lucide-react'
 import { useAuth } from '../auth/AuthProvider.jsx'
 import ConfirmDialog from '../components/ConfirmDialog.jsx'
+import LifecycleDeleteDialog from '../components/LifecycleDeleteDialog.jsx'
 import { Button, DataTable, EmptyState, ErrorState, LoadingState, Modal, StatusBadge, TextField } from '../components/ui.jsx'
 import { apiRequest } from '../lib/api.js'
 
@@ -13,8 +14,8 @@ function ProgramForm({ program, token, onClose, onSaved }) {
   const [error, setError] = useState('')
   const [confirmation, setConfirmation] = useState(null)
   const [values, setValues] = useState({
-    program_code: program?.program_code || '',
     name: program?.name || '',
+    duration_months: program?.duration_months == null ? '' : String(program.duration_months),
     description: program?.description || '',
     status: program?.status || 'draft',
   })
@@ -46,8 +47,13 @@ function ProgramForm({ program, token, onClose, onSaved }) {
   function submit(event) {
     event.preventDefault()
     if (savingRef.current) return
-    if (!values.name.trim() || (!program && !values.program_code.trim())) {
-      setError('Enter a program code and name.')
+    if (!values.name.trim() || (!program && !values.duration_months)) {
+      setError('Enter a program name and duration in months.')
+      return
+    }
+    const durationMonths = values.duration_months === '' ? null : Number(values.duration_months)
+    if (durationMonths !== null && (!Number.isInteger(durationMonths) || durationMonths < 1 || durationMonths > 1200)) {
+      setError('Duration must be a whole number of months between 1 and 1,200.')
       return
     }
     const payload = {
@@ -55,7 +61,7 @@ function ProgramForm({ program, token, onClose, onSaved }) {
       description: values.description.trim() || null,
       status: values.status,
     }
-    if (!program) payload.program_code = values.program_code.trim().toUpperCase()
+    if (durationMonths !== null) payload.duration_months = durationMonths
     if (program && program.status !== values.status) setConfirmation(payload)
     else save(payload)
   }
@@ -64,8 +70,10 @@ function ProgramForm({ program, token, onClose, onSaved }) {
     <Modal title={program ? 'Edit program' : 'Create program'} onClose={saving ? () => {} : onClose}>
       <form onSubmit={submit} noValidate className="grid gap-4">
         {error && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900">{error}</p>}
-        {!program && <TextField id="program-code" name="program_code" label="Program code" maxLength={64} required value={values.program_code} onChange={change} />}
+        {program && <p className="rounded-md bg-orange-50 px-3 py-2 text-sm text-orange-950">Program code: <strong>{program.program_code}</strong></p>}
+        {!program && <p className="rounded-md bg-orange-50 px-3 py-2 text-sm text-orange-950">A unique program code will be generated after saving.</p>}
         <TextField id="program-name" name="name" label="Program name" maxLength={200} required value={values.name} onChange={change} />
+        <TextField id="program-duration" name="duration_months" label="Duration (months)" type="number" min="1" max="1200" step="1" required={!program} value={values.duration_months} onChange={change} hint={program?.duration_months == null ? 'Existing duration is not recorded; leave blank to keep it unknown.' : undefined} />
         <div className="grid gap-1.5">
           <label htmlFor="program-description" className="text-sm font-semibold text-ink">Description</label>
           <textarea id="program-description" name="description" maxLength={4000} rows={4} value={values.description} onChange={change} className="rounded-md border border-line bg-white px-3 py-2 text-sm outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100" />
@@ -81,7 +89,7 @@ function ProgramForm({ program, token, onClose, onSaved }) {
           <Button type="submit" disabled={saving}>{saving ? 'Saving…' : program ? 'Save changes' : 'Create program'}</Button>
         </div>
       </form>
-      {confirmation && <ConfirmDialog title="Change program status?" message={`Change ${program.name} from ${program.status} to ${confirmation.status}? This can affect which programs are available for new batches and enrollments.`} confirmLabel="Save status change" busy={saving} onCancel={() => setConfirmation(null)} onConfirm={() => save(confirmation)} />}
+      {confirmation && <ConfirmDialog title="Change program status?" message={`Change ${program.name} from ${program.status} to ${confirmation.status}? This can affect which programs are available for new batches and enrollments.`} confirmLabel="Save status change" reasonRequired={confirmation.status === 'inactive'} reasonLabel="Reason for deactivation" busy={saving} onCancel={() => setConfirmation(null)} onConfirm={(reason) => { const payload = { ...confirmation, ...(confirmation.status === 'inactive' ? { reason } : {}) }; setConfirmation(null); save(payload) }} />}
     </Modal>
   )
 }
@@ -97,6 +105,7 @@ export default function ProgramsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [formProgram, setFormProgram] = useState(undefined)
+  const [deleteProgram, setDeleteProgram] = useState(null)
   const [success, setSuccess] = useState('')
 
   useEffect(() => {
@@ -121,10 +130,11 @@ export default function ProgramsPage() {
   const columns = [
     { key: 'program_code', label: 'Code' },
     { key: 'name', label: 'Program' },
+    { key: 'duration_months', label: 'Duration', render: (row) => row.duration_months == null ? '—' : `${row.duration_months} months` },
     { key: 'description', label: 'Description', render: (row) => row.description || '—' },
     { key: 'status', label: 'Status', render: (row) => <StatusBadge status={row.status} /> },
     { key: 'updated_at', label: 'Updated', render: (row) => new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium' }).format(new Date(row.updated_at)) },
-    { key: 'actions', label: 'Actions', render: (row) => <Button variant="quiet" className="min-h-9 px-2" aria-label={`Edit ${row.name}`} onClick={() => setFormProgram(row)}><SquarePen aria-hidden="true" className="h-4 w-4" /></Button> },
+    { key: 'actions', label: 'Actions', render: (row) => <div className="flex gap-1"><Button variant="quiet" className="min-h-9 px-2" aria-label={`Edit ${row.name}`} onClick={() => setFormProgram(row)}><SquarePen aria-hidden="true" className="h-4 w-4" /></Button><Button variant="quiet" className="min-h-9 px-2 text-red-700" aria-label={`Delete ${row.name}`} onClick={() => setDeleteProgram(row)}><Trash2 aria-hidden="true" className="h-4 w-4" /></Button></div> },
   ]
 
   return (
@@ -145,6 +155,7 @@ export default function ProgramsPage() {
         <><div className="mb-3 flex justify-between text-sm text-muted"><span>{data.total.toLocaleString('en-IN')} programs</span><span>Page {data.page} of {data.pages}</span></div><DataTable columns={columns} rows={data.items} getRowKey={(row) => row.program_id} caption="Internship programs" /><div className="mt-4 flex justify-between"><Button variant="secondary" disabled={page <= 1 || loading} onClick={() => setPage((value) => value - 1)}>Previous</Button><Button variant="secondary" disabled={page >= data.pages || loading} onClick={() => setPage((value) => value + 1)}>Next</Button></div></>
       )}
       {formProgram !== undefined && <ProgramForm program={formProgram || undefined} token={token} onClose={() => setFormProgram(undefined)} onSaved={saved} />}
+      {deleteProgram && <LifecycleDeleteDialog resourcePath={`programs/${deleteProgram.program_id}`} resourceLabel="program" identifier={deleteProgram.program_code} token={token} onCancel={() => setDeleteProgram(null)} onDeleted={() => { setSuccess(`${deleteProgram.program_code} deleted.`); setDeleteProgram(null); setReloadKey((key) => key + 1) }} />}
     </div>
   )
 }

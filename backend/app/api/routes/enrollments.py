@@ -1,6 +1,7 @@
 from typing import Annotated, Literal
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, Path, Query, Response, status
+from fastapi import APIRouter, Depends, Path, Query, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_admin
@@ -8,12 +9,16 @@ from app.db.session import get_db
 from app.models.admin import Admin
 from app.schemas.enrollment import (
     EnrollmentCreate,
+    EnrollmentDelete,
     EnrollmentPage,
     EnrollmentResponse,
     EnrollmentStatusUpdate,
 )
+from app.schemas.lifecycle import DependencySummary
 from app.services.enrollment_service import (
     create_enrollment,
+    delete_enrollment,
+    enrollment_dependencies,
     get_enrollment,
     list_enrollments,
     update_enrollment_status,
@@ -24,6 +29,13 @@ router = APIRouter(
     tags=["enrollments"],
     dependencies=[Depends(get_current_admin)],
 )
+
+
+def _request_id(request: Request) -> UUID | None:
+    try:
+        return UUID(request.state.request_id)
+    except (AttributeError, ValueError):
+        return None
 
 
 @router.post("", response_model=EnrollmentResponse, status_code=status.HTTP_201_CREATED)
@@ -75,7 +87,42 @@ def get_enrollment_endpoint(
 def update_enrollment_status_endpoint(
     enrollment_id: Annotated[int, Path(gt=0)],
     payload: EnrollmentStatusUpdate,
+    request: Request,
     session: Session = Depends(get_db),
+    admin: Admin = Depends(get_current_admin),
 ) -> EnrollmentResponse:
-    enrollment = update_enrollment_status(session, enrollment_id, payload.status)
+    enrollment = update_enrollment_status(
+        session,
+        enrollment_id,
+        payload.status,
+        payload.reason,
+        admin.admin_id,
+        _request_id(request),
+    )
     return EnrollmentResponse.model_validate(enrollment)
+
+
+@router.get("/{enrollment_id}/dependencies", response_model=DependencySummary)
+def enrollment_dependencies_endpoint(
+    enrollment_id: Annotated[int, Path(gt=0)],
+    session: Session = Depends(get_db),
+) -> DependencySummary:
+    return enrollment_dependencies(session, enrollment_id)
+
+
+@router.delete("/{enrollment_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_enrollment_endpoint(
+    enrollment_id: Annotated[int, Path(gt=0)],
+    payload: EnrollmentDelete,
+    request: Request,
+    session: Session = Depends(get_db),
+    admin: Admin = Depends(get_current_admin),
+) -> Response:
+    delete_enrollment(
+        session,
+        enrollment_id,
+        payload.reason,
+        admin.admin_id,
+        _request_id(request),
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

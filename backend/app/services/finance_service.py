@@ -246,21 +246,21 @@ def post_payment(
         recorded_by=admin_id,
     )
     session.add(payment)
-    session.flush()
-    _add_audit(
-        session,
-        admin_id,
-        "payment_recorded",
-        "payment",
-        payment.payment_id,
-        request_id,
-        {
-            "enrollment_id": enrollment_id,
-            "amount": str(payload.amount),
-            "payment_method": payload.payment_method,
-        },
-    )
     try:
+        session.flush()
+        _add_audit(
+            session,
+            admin_id,
+            "payment_recorded",
+            "payment",
+            payment.payment_id,
+            request_id,
+            {
+                "enrollment_id": enrollment_id,
+                "amount": str(payload.amount),
+                "payment_method": payload.payment_method,
+            },
+        )
         session.commit()
     except IntegrityError:
         session.rollback()

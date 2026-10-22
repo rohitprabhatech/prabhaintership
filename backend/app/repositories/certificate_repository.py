@@ -1,6 +1,7 @@
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.db.base import mysql_qualified_name
 from app.models.certificate import Certificate
 from app.models.certificate_event import CertificateEvent
 
@@ -28,14 +29,14 @@ class CertificateRepository:
             self.session.execute(
                 text(
                     "SELECT cs.certificate_id, cs.enrollment_id, cs.certificate_number, "
-                    "cs.certificate_type, cs.issued_at, cs.document_uri, "
+                    "cs.certificate_type, cs.issued_at, cs.created_at, cs.document_uri, "
                     "cs.replaces_certificate_id, cs.issued_by, cs.derived_status, "
                     "cs.terminal_event_at, e.enrollment_number, s.student_number, s.full_name, "
-                    "p.program_code FROM internship_management.v_certificate_status cs "
-                    "JOIN internship_management.enrollments e "
+                    f"p.program_code FROM {mysql_qualified_name('v_certificate_status')} cs "
+                    f"JOIN {mysql_qualified_name('enrollments')} e "
                     "ON e.enrollment_id = cs.enrollment_id "
-                    "JOIN internship_management.students s ON s.student_id = e.student_id "
-                    "JOIN internship_management.internship_programs p "
+                    f"JOIN {mysql_qualified_name('students')} s ON s.student_id = e.student_id "
+                    f"JOIN {mysql_qualified_name('internship_programs')} p "
                     "ON p.program_id = e.program_id "
                     "WHERE cs.certificate_id = :certificate_id"
                 ),
@@ -77,10 +78,10 @@ class CertificateRepository:
             params["search"] = f"%{escaped}%"
         where_sql = " WHERE " + " AND ".join(where) if where else ""
         from_sql = (
-            " FROM internship_management.v_certificate_status cs "
-            "JOIN internship_management.enrollments e ON e.enrollment_id = cs.enrollment_id "
-            "JOIN internship_management.students s ON s.student_id = e.student_id "
-            "JOIN internship_management.internship_programs p ON p.program_id = e.program_id "
+            f" FROM {mysql_qualified_name('v_certificate_status')} cs "
+            f"JOIN {mysql_qualified_name('enrollments')} e ON e.enrollment_id = cs.enrollment_id "
+            f"JOIN {mysql_qualified_name('students')} s ON s.student_id = e.student_id "
+            f"JOIN {mysql_qualified_name('internship_programs')} p ON p.program_id = e.program_id "
         )
         count = self.session.execute(
             text("SELECT count(*)" + from_sql + where_sql), params
@@ -89,14 +90,14 @@ class CertificateRepository:
             self.session.execute(
                 text(
                     "SELECT cs.certificate_id, cs.enrollment_id, cs.certificate_number, "
-                    "cs.certificate_type, cs.issued_at, cs.document_uri, "
+                    "cs.certificate_type, cs.issued_at, cs.created_at, cs.document_uri, "
                     "cs.replaces_certificate_id, cs.issued_by, cs.derived_status, "
                     "cs.terminal_event_at, e.enrollment_number, s.student_number, s.full_name, "
                     "p.program_code"
                     + from_sql
                     + where_sql
                     + " ORDER BY cs.issued_at DESC, cs.certificate_id DESC "
-                    + "OFFSET :offset LIMIT :limit"
+                    + "LIMIT :limit OFFSET :offset"
                 ),
                 params,
             )

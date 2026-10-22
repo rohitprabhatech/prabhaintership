@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from math import ceil
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -16,8 +16,12 @@ from app.schemas.finance import (
     ProjectAssignmentResponse,
     ProjectAssignmentStatusUpdate,
     ProjectCreate,
+    ProjectDelete,
     ProjectResponse,
+    ProjectStatusUpdate,
 )
+from app.schemas.lifecycle import DependencySummary
+from app.services.business_number_service import generate_business_number
 
 _PROJECT_ASSIGNMENT_TRANSITIONS = {
     "assigned": {"in_progress", "cancelled"},
@@ -30,10 +34,11 @@ _PROJECT_ASSIGNMENT_TRANSITIONS = {
 def create_project(
     session: Session, payload: ProjectCreate, admin_id: int, request_id
 ) -> ProjectResponse:
-    repository = ProjectRepository(session)
-    if repository.find_project_code(payload.project_code):
-        raise APIError(409, "duplicate_project_code", "Project code already exists")
-    project = Project(**payload.model_dump(), created_by=admin_id)
+    project = Project(
+        **payload.model_dump(),
+        project_code=generate_business_number(session, "project"),
+        created_by=admin_id,
+    )
     session.add(project)
     try:
         session.flush()
@@ -66,6 +71,105 @@ def get_project(session: Session, project_id: int) -> ProjectResponse:
     if project is None:
         raise APIError(404, "project_not_found", "Project was not found")
     return ProjectResponse.model_validate(project)
+
+
+def update_project_status(
+    session: Session,
+    project_id: int,
+    payload: ProjectStatusUpdate,
+    admin_id: int,
+    request_id,
+) -> ProjectResponse:
+    project = ProjectRepository(session).get_project(project_id, lock=True)
+    if project is None:
+        raise APIError(404, "project_not_found", "Project was not found")
+    previous_status = project.status
+    project.status = payload.status
+    if previous_status != project.status:
+        _audit(
+            session,
+            admin_id,
+            f"project_{project.status}",
+            "project",
+            project_id,
+            request_id,
+            {
+                "project_code": project.project_code,
+                "status_before": previous_status,
+                "reason": payload.reason
+                or f"Project status changed to {project.status}",
+            },
+        )
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        raise APIError(
+            409, "project_conflict", "Project update conflicts with existing records"
+        ) from None
+    session.refresh(project)
+    return ProjectResponse.model_validate(project)
+
+
+def project_dependencies(session: Session, project_id: int) -> DependencySummary:
+    project = ProjectRepository(session).get_project(project_id)
+    if project is None:
+        raise APIError(404, "project_not_found", "Project was not found")
+    assignments = session.scalar(
+        select(func.count())
+        .select_from(ProjectAssignment)
+        .where(ProjectAssignment.project_id == project_id)
+    ) or 0
+    return DependencySummary(
+        resource="project",
+        identifier=project.project_code,
+        dependencies={"assignments": assignments},
+        can_delete=assignments == 0,
+    )
+
+
+def delete_project(
+    session: Session,
+    project_id: int,
+    payload: ProjectDelete,
+    admin_id: int,
+    request_id,
+) -> None:
+    project = ProjectRepository(session).get_project(project_id, lock=True)
+    if project is None:
+        raise APIError(404, "project_not_found", "Project was not found")
+    dependencies = project_dependencies(session, project_id)
+    if not dependencies.can_delete:
+        raise APIError(
+            409,
+            "project_has_history",
+            (
+                "Project cannot be permanently deleted while assignments reference it. "
+                "Archive it instead."
+            ),
+        )
+    _audit(
+        session,
+        admin_id,
+        "project_deleted",
+        "project",
+        project_id,
+        request_id,
+        {"project_code": project.project_code, "reason": payload.reason},
+    )
+    session.delete(project)
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        raise APIError(
+            409,
+            "project_delete_conflict",
+            (
+                "Project is referenced by historical records and cannot be deleted. "
+                "Archive it instead."
+            ),
+        ) from None
 
 
 def create_assignment(
@@ -181,6 +285,7 @@ def update_assignment_status(
             "Project assignment status transition is not allowed",
         )
 
+    previous_status = assignment.status
     assignment.status = requested
     assignment.completed_at = datetime.now(UTC) if requested == "completed" else None
     assignment.updated_at = datetime.now(UTC)
@@ -194,6 +299,11 @@ def update_assignment_status(
             "project_assignment",
             assignment_id,
             request_id,
+            {
+                "reason": payload.reason
+                or f"Project assignment status changed to {requested}",
+                "status_before": previous_status,
+            },
         )
         session.commit()
     except IntegrityError:
@@ -208,7 +318,13 @@ def update_assignment_status(
 
 
 def _audit(
-    session: Session, admin_id: int, action: str, target_type: str, target_id: int, request_id
+    session: Session,
+    admin_id: int,
+    action: str,
+    target_type: str,
+    target_id: int,
+    request_id,
+    metadata: dict | None = None,
 ) -> None:
     session.add(
         AuditLog(
@@ -217,6 +333,6 @@ def _audit(
             target_type=target_type,
             target_id=target_id,
             request_id=request_id,
-            metadata_={},
+            metadata_=metadata or {},
         )
     )

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, Search, SquarePen } from 'lucide-react'
+import { Plus, Search, SquarePen, Trash2 } from 'lucide-react'
 import { useAuth } from '../auth/AuthProvider.jsx'
 import StudentForm from '../components/StudentForm.jsx'
+import LifecycleDeleteDialog from '../components/LifecycleDeleteDialog.jsx'
 import { Button, DataTable, EmptyState, ErrorState, LoadingState, StatusBadge } from '../components/ui.jsx'
 import { loadStudentList } from '../lib/studentData.js'
 
@@ -18,27 +19,42 @@ export default function StudentsPage() {
   const [queryDraft, setQueryDraft] = useState('')
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState('active')
+  const [programId, setProgramId] = useState('all')
+  const [batchId, setBatchId] = useState('all')
+  const [enrollmentStatus, setEnrollmentStatus] = useState('all')
+  const [feeStatus, setFeeStatus] = useState('all')
   const [page, setPage] = useState(1)
   const [reloadKey, setReloadKey] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [formStudent, setFormStudent] = useState(undefined)
+  const [deleteStudent, setDeleteStudent] = useState(null)
   const [success, setSuccess] = useState('')
 
   useEffect(() => {
     let active = true
     setLoading(true)
     setError('')
-    loadStudentList({ token, page, pageSize: PAGE_SIZE, query, status })
+    loadStudentList({
+      token,
+      page,
+      pageSize: PAGE_SIZE,
+      query,
+      status,
+      programId,
+      batchId,
+      enrollmentStatus,
+      feeStatus,
+    })
       .then((result) => { if (active) setData(result) })
       .catch((cause) => { if (active) setError(cause.message || 'Student records could not be loaded.') })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [token, page, query, status, reloadKey])
+  }, [token, page, query, status, programId, batchId, enrollmentStatus, feeStatus, reloadKey])
 
   function saveStudent(student) {
     setFormStudent(undefined)
-    setSuccess(`${student.full_name} ${student.status === 'archived' ? 'updated' : 'saved'} successfully.`)
+    setSuccess(`${student.student_number} · ${student.full_name} ${student.status === 'archived' ? 'updated' : 'saved'} successfully.`)
     setReloadKey((key) => key + 1)
   }
 
@@ -57,15 +73,20 @@ export default function StudentsPage() {
       ),
     },
     { key: 'email', label: 'Contact', render: (row) => <span>{row.email || '—'}<span className="mt-0.5 block text-xs text-muted">{row.phone || 'No phone'}</span></span> },
-    { key: 'program', label: 'Program / domain', render: (row) => row.program?.name || 'No enrollment' },
+    { key: 'education', label: 'Education / program', render: (row) => [row.course, row.internship_domain, row.program?.name].filter(Boolean).join(' · ') || '—' },
     { key: 'batch', label: 'Batch', render: (row) => row.batch?.name || '—' },
     { key: 'status', label: 'Status', render: (row) => <StatusBadge status={row.status} /> },
     { key: 'updated_at', label: 'Updated', render: (row) => displayDate(row.updated_at) },
     {
       key: 'actions', label: 'Actions', render: (row) => (
-        <Button variant="quiet" className="min-h-9 px-2" aria-label={`Edit ${row.full_name}`} onClick={() => setFormStudent(row)}>
-          <SquarePen aria-hidden="true" className="h-4 w-4" />
-        </Button>
+        <div className="flex gap-1">
+          <Button variant="quiet" className="min-h-9 px-2" aria-label={`Edit ${row.full_name}`} onClick={() => setFormStudent(row)}>
+            <SquarePen aria-hidden="true" className="h-4 w-4" />
+          </Button>
+          <Button variant="quiet" className="min-h-9 px-2 text-red-700" aria-label={`Delete ${row.student_number}`} onClick={() => setDeleteStudent(row)}>
+            <Trash2 aria-hidden="true" className="h-4 w-4" />
+          </Button>
+        </div>
       ),
     },
   ]
@@ -97,6 +118,33 @@ export default function StudentsPage() {
             <option value="active">Active</option><option value="archived">Archived</option><option value="all">All students</option>
           </select>
         </div>
+        <div className="grid min-w-48 gap-1.5">
+          <label htmlFor="student-program-filter" className="text-xs font-semibold text-muted">Program</label>
+          <select id="student-program-filter" value={programId} onChange={(event) => { setProgramId(event.target.value); setBatchId('all'); setPage(1) }} className="min-h-10 rounded-md border border-line bg-white px-3 text-sm">
+            <option value="all">All programs</option>
+            {(data?.programs || []).map((program) => <option key={program.program_id} value={program.program_id}>{program.program_code} · {program.name}</option>)}
+          </select>
+        </div>
+        <div className="grid min-w-48 gap-1.5">
+          <label htmlFor="student-batch-filter" className="text-xs font-semibold text-muted">Batch</label>
+          <select id="student-batch-filter" value={batchId} onChange={(event) => { setBatchId(event.target.value); setPage(1) }} className="min-h-10 rounded-md border border-line bg-white px-3 text-sm">
+            <option value="all">All batches</option>
+            {(data?.batches || []).filter((batch) => programId === 'all' || String(batch.program_id) === programId).map((batch) => <option key={batch.batch_id} value={batch.batch_id}>{batch.batch_code} · {batch.name}</option>)}
+          </select>
+        </div>
+        <div className="grid min-w-40 gap-1.5">
+          <label htmlFor="student-enrollment-filter" className="text-xs font-semibold text-muted">Enrollment status</label>
+          <select id="student-enrollment-filter" value={enrollmentStatus} onChange={(event) => { setEnrollmentStatus(event.target.value); setPage(1) }} className="min-h-10 rounded-md border border-line bg-white px-3 text-sm">
+            <option value="all">All enrollments</option>
+            {['active', 'completed', 'withdrawn', 'cancelled'].map((value) => <option key={value} value={value}>{value}</option>)}
+          </select>
+        </div>
+        <div className="grid min-w-40 gap-1.5">
+          <label htmlFor="student-fee-filter" className="text-xs font-semibold text-muted">Fee status</label>
+          <select id="student-fee-filter" value={feeStatus} onChange={(event) => { setFeeStatus(event.target.value); setPage(1) }} className="min-h-10 rounded-md border border-line bg-white px-3 text-sm">
+            <option value="all">All fee statuses</option><option value="outstanding">Outstanding</option><option value="paid">Paid</option>
+          </select>
+        </div>
       </section>
 
       {loading ? <LoadingState label="Loading students" /> : error ? (
@@ -119,6 +167,7 @@ export default function StudentsPage() {
       )}
 
       {formStudent !== undefined && <StudentForm student={formStudent || undefined} token={token} onClose={() => setFormStudent(undefined)} onSaved={saveStudent} />}
+      {deleteStudent && <LifecycleDeleteDialog resourcePath={`students/${deleteStudent.student_id}`} resourceLabel="student" identifier={deleteStudent.student_number} token={token} onCancel={() => setDeleteStudent(null)} onDeleted={() => { setSuccess(`${deleteStudent.student_number} deleted.`); setDeleteStudent(null); setReloadKey((key) => key + 1) }} />}
     </div>
   )
 }

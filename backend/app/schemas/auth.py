@@ -8,6 +8,17 @@ class LoginRequest(BaseModel):
     password: SecretStr = Field(min_length=1, max_length=1024)
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: SecretStr = Field(min_length=1, max_length=1024)
+    new_password: SecretStr = Field(min_length=1, max_length=1024)
+    confirm_password: SecretStr = Field(min_length=1, max_length=1024)
+
+
+class ChangePasswordResponse(BaseModel):
+    message: str
+    reauthenticate: bool
+
+
 class AdminPublic(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

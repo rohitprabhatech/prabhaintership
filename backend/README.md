@@ -3,7 +3,8 @@
 ## Requirements
 
 - Python 3.11 or newer
-- PostgreSQL 14 or newer
+- MySQL 8 or newer
+- PyMySQL (installed from the project dependencies)
 - Windows PowerShell commands below can be adapted for another shell
 
 ## Local setup
@@ -16,10 +17,10 @@ py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
-Copy-Item .env.example .env
+if (!(Test-Path .env)) { Copy-Item .env.example .env }
 ```
 
-Edit `.env`: set `DATABASE_URL` for the runtime application, set `ADMIN_PROVISIONING_DATABASE_URL` for the bootstrap/reset CLI, and replace `JWT_SECRET_KEY` with a generated secret. The checked-in example reuses the local development DB principal for convenience only. In production, the API process needs only `DATABASE_URL`; run Alembic with a distinct TLS-protected `MIGRATION_DATABASE_URL`, and run the Admin CLI with a distinct TLS-protected `ADMIN_PROVISIONING_DATABASE_URL`. Never grant the runtime account ownership/DDL or Admin-provisioning privileges. Do not commit `.env`. For example, generate a secret in PowerShell with:
+Configure `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD` in `.env`. The backend builds a `mysql+pymysql` SQLAlchemy URL with `URL.create()`, so special characters in the password are handled as connection parameters. Keep the existing `.env` and preserve unrelated values. Set a unique `JWT_SECRET_KEY` of at least 32 characters; for example, generate one in PowerShell with:
 
 ```powershell
 python -c "import secrets; print(secrets.token_urlsafe(48))"
@@ -29,18 +30,20 @@ The example database URL and key are placeholders, not production credentials.
 
 ## Migrations
 
-Apply the versioned schema using `MIGRATION_DATABASE_URL` when configured (development/test falls back to `DATABASE_URL`):
+After the database owner approves a migration for the selected environment, apply the versioned MySQL schema using the configured `DB_*` values. Production should set separate `MIGRATION_DB_*` credentials and TLS settings:
 
 ```powershell
 alembic upgrade head
 alembic current
 ```
 
-Migrations create only `internship_management.admins`, its authentication-version column, and shared Admin login-throttle buckets. They do not create future student or internship tables. Production must use Alembic migrations; the application never calls `metadata.create_all()` at startup.
+Alembic revisions create the Admin, student, program, batch, enrollment, finance, project, certificate, and audit tables, MySQL integrity triggers, and derived views. Production must use reviewed Alembic migrations; the application never calls `metadata.create_all()` at startup. The PostgreSQL-specific `database/schema.sql` is not an executable MySQL migration.
+
+Revision `0009` adds generated business identifiers, student profile fields, program duration, and the required batch relationship for enrollments. It contains preflight checks and is forward-only. It is applied to the configured local `internship_management` database at revision `0009`; for another/shared target, verify the database, create and check a backup, and obtain explicit database-change approval before applying it. See [the local setup guide](../docs/07-local-setup-and-run.md).
 
 ## Provision the first Admin
 
-There is no public registration route. Provision the first Admin through the operator CLI after applying the migration. The CLI uses `ADMIN_PROVISIONING_DATABASE_URL`; it does not fall back to the runtime URL. Bootstrap is allowed only while no Admin exists:
+There is no public registration route. Provision the first Admin through the operator CLI after applying migrations and confirming that no Admin exists. In production, configure separate `ADMIN_PROVISIONING_DB_*` settings; the CLI uses those credentials when provided. Bootstrap is allowed only while no Admin exists:
 
 ```powershell
 python -m app.cli bootstrap-admin --username admin --email admin@example.com
@@ -75,14 +78,17 @@ Run unit tests:
 pytest
 ```
 
-PostgreSQL integration tests require a dedicated isolated database and `TEST_DATABASE_URL` in the process environment. They apply Alembic migrations to that database; do not point it at development or production data.
+MySQL integration tests require a dedicated isolated `*_test` database and `TEST_DATABASE_URL`; set `APP_ENV=test` and `DB_NAME` to that same test schema before importing application modules. Never point them at development or production data. **The current test harness requires correction before integration tests are run:** an earlier test launch wrote generated data into the local development database because application settings were cached before test variables were set. See [`../docs/05-testing-report.md`](../docs/05-testing-report.md).
 
 ```powershell
-$env:TEST_DATABASE_URL = "postgresql+psycopg://test_user:test_password@localhost:5432/internship_management_test"
+$env:APP_ENV = "test"
+$env:DB_NAME = "internship_management_test"
+# Build TEST_DATABASE_URL with SQLAlchemy URL.create() in a local runner;
+# do not place a real password in a shell command or shell history.
 pytest -m integration
 ```
 
-Login throttling uses shared PostgreSQL buckets keyed by HMACed client addresses, so limits apply across workers without persisting raw IP addresses. The application does not trust arbitrary forwarded-IP headers; configure trusted proxy handling at deployment before operating behind a reverse proxy.
+Login throttling uses shared MySQL buckets keyed by HMACed client addresses, so limits apply across workers without persisting raw IP addresses. The application does not trust arbitrary forwarded-IP headers; configure trusted proxy handling at deployment before operating behind a reverse proxy.
 
 ## Student API examples
 
@@ -94,20 +100,30 @@ Authorization: Bearer <admin-access-token>
 Content-Type: application/json
 
 {
-  "student_number": "PT-2026-0042",
   "full_name": "Asha Patel",
   "email": "asha.patel@example.com",
-  "phone": "+91 98765 43210"
+  "phone": "+91 98765 43210",
+  "city": "Pune",
+  "institution_name": "Example Institute",
+  "course": "Computer Science",
+  "internship_domain": "Backend Development"
 }
 ```
 
 ```json
 {
   "student_id": 42,
-  "student_number": "PT-2026-0042",
+  "student_number": "STU-2026-000042",
   "full_name": "Asha Patel",
   "email": "asha.patel@example.com",
   "phone": "+91 98765 43210",
+  "address": null,
+  "city": "Pune",
+  "state": null,
+  "postal_code": null,
+  "institution_name": "Example Institute",
+  "course": "Computer Science",
+  "internship_domain": "Backend Development",
   "status": "active",
   "created_by": 1,
   "created_at": "2026-10-16T12:00:00Z",
@@ -128,10 +144,17 @@ Authorization: Bearer <admin-access-token>
   "items": [
     {
       "student_id": 42,
-      "student_number": "PT-2026-0042",
+      "student_number": "STU-2026-000042",
       "full_name": "Asha Patel",
       "email": "asha.patel@example.com",
       "phone": "+91 98765 43210",
+      "address": null,
+      "city": "Pune",
+      "state": null,
+      "postal_code": null,
+      "institution_name": "Example Institute",
+      "course": "Computer Science",
+      "internship_domain": "Backend Development",
       "status": "active",
       "created_by": 1,
       "created_at": "2026-10-16T12:00:00Z",
@@ -158,8 +181,8 @@ Authorization: Bearer <admin-access-token>
 Content-Type: application/json
 
 {
-  "program_code": "PY-FASTAPI-01",
   "name": "FastAPI Internship",
+  "duration_months": 3,
   "description": "Backend internship cohort",
   "status": "active"
 }
@@ -168,8 +191,9 @@ Content-Type: application/json
 ```json
 {
   "program_id": 12,
-  "program_code": "PY-FASTAPI-01",
+  "program_code": "PRG-2026-0012",
   "name": "FastAPI Internship",
+  "duration_months": 3,
   "description": "Backend internship cohort",
   "status": "active",
   "created_by": 1,
@@ -185,7 +209,6 @@ Content-Type: application/json
 
 {
   "program_id": 12,
-  "batch_code": "NOV-2026-A",
   "name": "November 2026 Cohort A",
   "starts_on": "2026-11-01",
   "ends_on": "2027-01-31",
@@ -193,7 +216,7 @@ Content-Type: application/json
 }
 ```
 
-Enroll an active student in an active program and an eligible batch. The enrollment is created active; status changes go through the dedicated endpoint.
+Enroll an active student in an eligible batch belonging to an active program. The program is derived from the selected batch, and the enrollment is created active; status changes go through the dedicated endpoint.
 
 ```http
 POST /api/v1/enrollments HTTP/1.1
@@ -201,9 +224,7 @@ Authorization: Bearer <admin-access-token>
 Content-Type: application/json
 
 {
-  "enrollment_number": "ENR-2026-0042",
   "student_id": 42,
-  "program_id": 12,
   "batch_id": 18,
   "starts_on": "2026-11-01",
   "ends_on": "2027-01-31",
@@ -215,14 +236,13 @@ Content-Type: application/json
 ```json
 {
   "enrollment_id": 73,
-  "enrollment_number": "ENR-2026-0042",
+  "enrollment_number": "ENR-2026-000042",
   "student_id": 42,
   "program_id": 12,
   "batch_id": 18,
   "status": "active",
   "starts_on": "2026-11-01",
   "ends_on": "2027-01-31",
-  "created_by": 1,
   "created_by": 1,
   "created_at": "2026-10-16T12:00:00Z",
   "updated_at": "2026-10-16T12:00:00Z"
@@ -269,4 +289,4 @@ Repeat the same request with the same `Idempotency-Key` to receive the original 
 
 Assign a project with `POST /api/v1/enrollments/{enrollment_id}/projects` and `{ "project_id": 9 }`. Update assignment progress at `PATCH /api/v1/project-assignments/{assignment_id}/status` with `in_progress`, `completed`, or `cancelled`; completion is timestamped and audited.
 
-Issue a certificate with `POST /api/v1/certificates` using `enrollment_id`, `certificate_number`, and `certificate_type`. Issued rows cannot be updated or deleted. Corrections are recorded as events; replacement issues a new certificate and links it to the original; revocation is a separate traceable event. The report is `GET /api/v1/certificates?status=issued&page=1&page_size=20`, with `status` supporting `issued`, `replaced`, `revoked`, or `all`.
+Create projects with `POST /api/v1/projects` using `name` and optional `description`; the project code is generated by the server. Issue a certificate with `POST /api/v1/certificates` using `enrollment_id` and `certificate_type`; the certificate number is generated by the server. Issued rows cannot be updated or deleted. Corrections are recorded as events; replacement issues a new generated number and links it to the original; revocation is a separate traceable event. The report is `GET /api/v1/certificates?status=issued&page=1&page_size=20`, with `status` supporting `issued`, `replaced`, `revoked`, or `all`.

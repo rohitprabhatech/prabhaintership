@@ -6,14 +6,16 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    String,
     Text,
     UniqueConstraint,
     func,
     text,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base
+from app.db.base import Base, DATABASE_SCHEMA
+from app.db.types import UTCDateTime
 
 
 class ProjectAssignment(Base):
@@ -32,7 +34,7 @@ class ProjectAssignment(Base):
         ),
         Index("ix_project_assignments_enrollment_status", "enrollment_id", "status"),
         Index("ix_project_assignments_project_status", "project_id", "status"),
-        {"schema": "internship_management"},
+        {"schema": DATABASE_SCHEMA},
     )
 
     project_assignment_id: Mapped[int] = mapped_column(
@@ -41,7 +43,7 @@ class ProjectAssignment(Base):
     project_id: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey(
-            "internship_management.projects.project_id",
+            f"{DATABASE_SCHEMA}.projects.project_id",
             name="fk_project_assignments_projects",
             ondelete="RESTRICT",
         ),
@@ -50,32 +52,34 @@ class ProjectAssignment(Base):
     enrollment_id: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey(
-            "internship_management.enrollments.enrollment_id",
+            f"{DATABASE_SCHEMA}.enrollments.enrollment_id",
             name="fk_project_assignments_enrollments",
             ondelete="RESTRICT",
         ),
         nullable=False,
     )
-    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'assigned'"))
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'assigned'"))
     assigned_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.transaction_timestamp()
+        UTCDateTime(), nullable=False, server_default=func.current_timestamp()
     )
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     assigned_by: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey(
-            "internship_management.admins.admin_id",
+            f"{DATABASE_SCHEMA}.admins.admin_id",
             name="fk_project_assignments_assigned_by_admins",
             ondelete="RESTRICT",
         ),
         nullable=False,
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.transaction_timestamp()
+        UTCDateTime(), nullable=False, server_default=func.current_timestamp()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
+        UTCDateTime(),
         nullable=False,
-        server_default=func.transaction_timestamp(),
-        onupdate=func.transaction_timestamp(),
+        server_default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
     )
+    project: Mapped["Project"] = relationship("Project", back_populates="assignments")
+    enrollment: Mapped["Enrollment"] = relationship("Enrollment", back_populates="project_assignments")

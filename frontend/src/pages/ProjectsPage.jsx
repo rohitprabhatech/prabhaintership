@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { Plus } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 import { useAuth } from '../auth/AuthProvider.jsx'
 import ConfirmDialog from '../components/ConfirmDialog.jsx'
+import LifecycleDeleteDialog from '../components/LifecycleDeleteDialog.jsx'
 import { Button, DataTable, EmptyState, ErrorState, LoadingState, Modal, StatusBadge, TextField } from '../components/ui.jsx'
 import { apiRequest } from '../lib/api.js'
 import { getAllPages } from '../lib/adminData.js'
@@ -12,17 +13,16 @@ function ProjectForm({ token, onClose, onSaved }) {
   const savingRef = useRef(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [values, setValues] = useState({ project_code: '', name: '', description: '' })
+  const [values, setValues] = useState({ name: '', description: '' })
   async function submit(event) {
     event.preventDefault()
     if (savingRef.current) return
-    if (!values.project_code.trim() || !values.name.trim()) { setError('Enter a project code and name.'); return }
+    if (!values.name.trim()) { setError('Enter a project name.'); return }
     savingRef.current = true
     setSaving(true)
     setError('')
     try {
       const project = await apiRequest('projects', { token, method: 'POST', body: JSON.stringify({
-        project_code: values.project_code.trim().toUpperCase(),
         name: values.name.trim(),
         description: values.description.trim() || null,
       }) })
@@ -38,10 +38,10 @@ function ProjectForm({ token, onClose, onSaved }) {
     <Modal title="Create project" onClose={saving ? () => {} : onClose}>
       <form onSubmit={submit} noValidate className="grid gap-4">
         {error && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900">{error}</p>}
-        <TextField id="project-code" label="Project code" maxLength={64} required value={values.project_code} onChange={(event) => setValues((current) => ({ ...current, project_code: event.target.value }))} />
+        <p className="rounded-md bg-orange-50 px-3 py-2 text-sm text-orange-950">A unique project code will be generated after saving.</p>
         <TextField id="project-name" label="Project name" maxLength={200} required value={values.name} onChange={(event) => setValues((current) => ({ ...current, name: event.target.value }))} />
         <div className="grid gap-1.5"><label htmlFor="project-description" className="text-sm font-semibold text-ink">Description</label><textarea id="project-description" maxLength={4000} rows={4} value={values.description} onChange={(event) => setValues((current) => ({ ...current, description: event.target.value }))} className="rounded-md border border-line bg-white px-3 py-2 text-sm outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100" /></div>
-        <p className="text-xs text-muted">Project definitions are create-only in the approved API; they cannot be edited or deleted here.</p>
+        <p className="text-xs text-muted">Project definitions can be archived after creation; assignment history is preserved.</p>
         <div className="flex justify-end gap-2 border-t border-line pt-4"><Button type="button" variant="secondary" onClick={onClose} disabled={saving}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? 'Creating…' : 'Create project'}</Button></div>
       </form>
     </Modal>
@@ -57,6 +57,10 @@ function ProjectCatalog({ token }) {
   const [error, setError] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [success, setSuccess] = useState('')
+  const [pendingStatus, setPendingStatus] = useState(null)
+  const [deleteProject, setDeleteProject] = useState(null)
+  const [actionBusy, setActionBusy] = useState(false)
+  const [actionError, setActionError] = useState('')
   useEffect(() => {
     let active = true
     setLoading(true)
@@ -67,19 +71,73 @@ function ProjectCatalog({ token }) {
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [token, status, page, reloadKey])
+
+  async function changeStatus(reason) {
+    if (!pendingStatus || actionBusy) return
+    setActionBusy(true)
+    setActionError('')
+    try {
+      const result = await apiRequest(`projects/${pendingStatus.project_id}/status`, {
+        token,
+        method: 'PATCH',
+        body: JSON.stringify({
+          status: pendingStatus.status,
+          ...(reason ? { reason } : {}),
+        }),
+      })
+      setSuccess(`${result.project_code} ${result.status === 'archived' ? 'archived' : 'restored'}.`)
+      setPendingStatus(null)
+      setReloadKey((key) => key + 1)
+    } catch (cause) {
+      setActionError(cause.message || 'Project status could not be changed.')
+      setPendingStatus(null)
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
   const columns = [
     { key: 'project_code', label: 'Code' },
     { key: 'name', label: 'Project' },
     { key: 'description', label: 'Description', render: (row) => row.description || '—' },
     { key: 'status', label: 'Status', render: (row) => <StatusBadge status={row.status} /> },
+    {
+      key: 'actions',
+      label: 'Actions',
+      render: (row) => (
+        <div className="flex gap-1">
+          <Button
+            variant="quiet"
+            className="min-h-9 px-2 text-xs"
+            onClick={() => {
+              setActionError('')
+              setPendingStatus({ ...row, status: row.status === 'active' ? 'archived' : 'active' })
+            }}
+          >
+            {row.status === 'active' ? 'Archive' : 'Restore'}
+          </Button>
+          <Button
+            variant="quiet"
+            className="min-h-9 px-2 text-red-700"
+            aria-label={`Delete ${row.project_code}`}
+            onClick={() => setDeleteProject(row)}
+          >
+            <Trash2 aria-hidden="true" className="h-4 w-4" />
+          </Button>
+        </div>
+      ),
+    },
   ]
   return (
     <section aria-labelledby="project-catalog-heading" className="rounded-lg border border-line bg-white p-4 sm:p-5">
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3"><div><h2 id="project-catalog-heading" className="text-base font-semibold text-ink">Project catalog</h2><p className="mt-1 text-xs text-muted">Project definitions are immutable after creation.</p></div><Button onClick={() => setShowForm(true)}><Plus aria-hidden="true" className="h-4 w-4" /> Create project</Button></div>
       {success && <p role="status" className="mb-3 rounded-md border border-emerald-200 bg-emerald-50 p-2.5 text-sm text-emerald-900">{success}</p>}
+      {actionError && <p role="alert" className="mb-3 rounded-md border border-red-200 bg-red-50 p-2.5 text-sm text-red-900">{actionError}</p>}
       <div className="mb-3 flex justify-end"><select aria-label="Project status filter" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1) }} className="min-h-10 rounded-md border border-line bg-white px-3 text-sm">{['all', 'active', 'archived'].map((value) => <option key={value} value={value}>{value === 'all' ? 'All statuses' : value}</option>)}</select></div>
       {loading ? <LoadingState label="Loading projects" /> : error ? <ErrorState title="Projects could not be loaded" message={error} onRetry={() => setReloadKey((key) => key + 1)} /> : data.total === 0 ? <EmptyState title="No projects found" description="Create a project definition before assigning projects to enrollments." /> : <><DataTable columns={columns} rows={data.items} getRowKey={(row) => row.project_id} caption="Project catalog" /><div className="mt-3 flex justify-between text-sm"><Button variant="secondary" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Previous</Button><span className="self-center text-muted">Page {data.page} of {data.pages}</span><Button variant="secondary" disabled={page >= data.pages} onClick={() => setPage((value) => value + 1)}>Next</Button></div></>}
       {showForm && <ProjectForm token={token} onClose={() => setShowForm(false)} onSaved={(project) => { setShowForm(false); setSuccess(`${project.project_code} created successfully.`); setReloadKey((key) => key + 1) }} />}
+      {pendingStatus && <ConfirmDialog title={`${pendingStatus.status === 'archived' ? 'Archive' : 'Restore'} project?`} message={`${pendingStatus.project_code} · ${pendingStatus.name}. Existing project assignments and their history will be preserved.`} confirmLabel={pendingStatus.status === 'archived' ? 'Archive project' : 'Restore project'} reasonRequired={pendingStatus.status === 'archived'} reasonLabel="Reason for archiving" busy={actionBusy} onCancel={() => setPendingStatus(null)} onConfirm={changeStatus} />}
+      {deleteProject && <LifecycleDeleteDialog resourcePath={`projects/${deleteProject.project_id}`} resourceLabel="project" identifier={deleteProject.project_code} token={token} onCancel={() => setDeleteProject(null)} onDeleted={() => { setSuccess(`${deleteProject.project_code} deleted.`); setDeleteProject(null); setReloadKey((key) => key + 1) }} />}
     </section>
   )
 }
@@ -151,11 +209,11 @@ function AssignmentPanel({ token }) {
     return () => { active = false }
   }, [token, page, status, projectId, reloadKey])
 
-  async function transition() {
+  async function transition(reason) {
     if (!pending || busy) return
     setBusy(true)
     try {
-      const result = await apiRequest(`project-assignments/${pending.project_assignment_id}/status`, { token, method: 'PATCH', body: JSON.stringify({ status: pending.next }) })
+      const result = await apiRequest(`project-assignments/${pending.project_assignment_id}/status`, { token, method: 'PATCH', body: JSON.stringify({ status: pending.next, ...(reason ? { reason } : {}) }) })
       setSuccess(`${result.project_name || result.project_code || 'Project'} marked ${result.status}.`)
       setPending(null)
       setReloadKey((key) => key + 1)
@@ -185,7 +243,7 @@ function AssignmentPanel({ token }) {
       <div className="mb-3 flex flex-wrap justify-end gap-2"><select aria-label="Assignment status filter" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1) }} className="min-h-10 rounded-md border border-line bg-white px-3 text-sm">{['all', 'assigned', 'in_progress', 'completed', 'cancelled'].map((value) => <option key={value} value={value}>{value.replaceAll('_', ' ')}</option>)}</select><select aria-label="Assignment project filter" value={projectId} onChange={(event) => { setProjectId(event.target.value); setPage(1) }} className="min-h-10 rounded-md border border-line bg-white px-3 text-sm"><option value="all">All projects</option>{projects.map((project) => <option key={project.project_id} value={project.project_id}>{project.project_name || project.name}</option>)}</select></div>
       {loading ? <LoadingState label="Loading project assignments" /> : error ? null : data.total === 0 ? <EmptyState title="No assignments found" description="Adjust the filters or assign a project to an active enrollment." /> : <><DataTable columns={columns} rows={data.items} getRowKey={(row) => row.project_assignment_id} caption="Project assignment progress" /><div className="mt-3 flex justify-between text-sm"><Button variant="secondary" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Previous</Button><span className="self-center text-muted">Page {data.page} of {data.pages}</span><Button variant="secondary" disabled={page >= data.pages} onClick={() => setPage((value) => value + 1)}>Next</Button></div></>}
       {showForm && <AssignmentForm token={token} projects={projects} enrollments={enrollments} onClose={() => setShowForm(false)} onSaved={(assignment) => { setShowForm(false); setSuccess(`Project assignment ${assignment.project_assignment_id} created.`); setReloadKey((key) => key + 1) }} />}
-      {pending && <ConfirmDialog title={`Mark assignment ${pending.next.replaceAll('_', ' ')}?`} message={`This records a ${pending.next.replaceAll('_', ' ')} transition for ${pending.project_name || 'the project assignment'}. Completion or cancellation is retained in history.`} confirmLabel={`Set ${pending.next.replaceAll('_', ' ')}`} busy={busy} onCancel={() => setPending(null)} onConfirm={transition} />}
+      {pending && <ConfirmDialog title={`Mark assignment ${pending.next.replaceAll('_', ' ')}?`} message={`This records a ${pending.next.replaceAll('_', ' ')} transition for ${pending.project_name || 'the project assignment'}. Completion or cancellation is retained in history.`} confirmLabel={`Set ${pending.next.replaceAll('_', ' ')}`} reasonRequired={pending.next === 'cancelled'} reasonLabel="Reason for cancellation" busy={busy} onCancel={() => setPending(null)} onConfirm={transition} />}
     </section>
   )
 }

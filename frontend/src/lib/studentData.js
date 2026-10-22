@@ -1,14 +1,29 @@
 import { apiRequest } from './api.js'
 import { getAllPages, mapWithConcurrency } from './adminData.js'
 
-export async function loadStudentList({ token, page, pageSize, query, status }) {
+export async function loadStudentList({
+  token,
+  page,
+  pageSize,
+  query,
+  status,
+  programId = 'all',
+  batchId = 'all',
+  enrollmentStatus = 'all',
+  feeStatus = 'all',
+}) {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+    q: query,
+    status,
+  })
+  if (programId !== 'all') params.set('program_id', programId)
+  if (batchId !== 'all') params.set('batch_id', batchId)
+  if (enrollmentStatus !== 'all') params.set('enrollment_status', enrollmentStatus)
+  if (feeStatus !== 'all') params.set('fee_status', feeStatus)
   const [studentPage, programs, batches] = await Promise.all([
-    apiRequest(`students?${new URLSearchParams({
-      page: String(page),
-      page_size: String(pageSize),
-      q: query,
-      status,
-    })}`, { token }),
+    apiRequest(`students?${params}`, { token }),
     getAllPages('programs', { status: 'all' }, token),
     getAllPages('batches', { status: 'all' }, token),
   ])
@@ -21,6 +36,8 @@ export async function loadStudentList({ token, page, pageSize, query, status }) 
 
   return {
     ...studentPage,
+    programs: programs.items,
+    batches: batches.items,
     items: studentPage.items.map((student, index) => {
       const latestEnrollment = enrollmentsByStudent[index].items[0]
       return {
@@ -34,11 +51,12 @@ export async function loadStudentList({ token, page, pageSize, query, status }) 
 }
 
 export async function loadStudentProfile(studentId, token) {
-  const [student, enrollments, programs, batches] = await Promise.all([
+  const [student, enrollments, programs, batches, activity] = await Promise.all([
     apiRequest(`students/${studentId}`, { token }),
     getAllPages('enrollments', { student_id: studentId, status: 'all' }, token),
     getAllPages('programs', { status: 'all' }, token),
     getAllPages('batches', { status: 'all' }, token),
+    apiRequest(`students/${studentId}/activity`, { token }),
   ])
 
   const programById = new Map(programs.items.map((program) => [program.program_id, program]))
@@ -69,5 +87,5 @@ export async function loadStudentProfile(studentId, token) {
     }
   })
 
-  return { student, history }
+  return { student, history, activity }
 }

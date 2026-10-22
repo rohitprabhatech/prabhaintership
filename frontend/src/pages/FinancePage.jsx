@@ -23,7 +23,7 @@ function idempotencyKey() {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
-function FinanceAction({ action, enrollment, payment, token, onCancel, onSaved }) {
+function FinanceAction({ action, enrollment, payment, pendingBalance, token, onCancel, onRefresh, onSaved }) {
   const writingRef = useRef(false)
   const [writing, setWriting] = useState(false)
   const [error, setError] = useState('')
@@ -44,6 +44,16 @@ function FinanceAction({ action, enrollment, payment, token, onCancel, onSaved }
     if (writingRef.current) return
     if (!positiveMoney(values.amount)) {
       setError('Enter a positive amount with no more than two decimal places.')
+      return
+    }
+    if (
+      isPayment
+      && pendingBalance != null
+      && decimalToMinorUnits(values.amount) > decimalToMinorUnits(pendingBalance)
+    ) {
+      setError(
+        `Payment cannot exceed the current pending balance of ${formatInrMinorUnits(decimalToMinorUnits(pendingBalance))}. Refresh the financial history if the balance may have changed.`,
+      )
       return
     }
     if ((!isPayment && !values.reason.trim()) || values.reason.trim().length > 500) {
@@ -86,9 +96,19 @@ function FinanceAction({ action, enrollment, payment, token, onCancel, onSaved }
       onSaved(result, action)
     } catch (cause) {
       setConfirmation(null)
-      setError(cause instanceof ApiError && cause.status === 409
-        ? `${cause.message} The server rejected this financial change; no success is recorded.`
-        : cause.message || 'The financial request failed. No success is recorded.')
+      if (cause instanceof ApiError && cause.code === 'overpayment_rejected') {
+        setError(
+          `The server rejected this payment because it exceeds the current pending balance. Refresh the financial history and enter an amount no greater than Pending.${cause.requestId ? ` Reference: ${cause.requestId}.` : ''}`,
+        )
+        onRefresh()
+      } else {
+        const reference = cause instanceof ApiError && cause.code
+          ? ` Error code: ${cause.code}${cause.requestId ? `; reference: ${cause.requestId}` : ''}.`
+          : ''
+        setError(cause instanceof ApiError && cause.status === 409
+          ? `${cause.message} The server rejected this financial change; no success is recorded.${reference}`
+          : `${cause.message || 'The financial request failed. No success is recorded.'}${reference}`)
+      }
     } finally {
       writingRef.current = false
       setWriting(false)
@@ -196,7 +216,7 @@ function FinanceDetails({ enrollment, token, onClose, onMutation }) {
         </div>
       )}
       <div className="mt-4 flex justify-end border-t border-line pt-3"><Button variant="secondary" onClick={onClose}>Close</Button></div>
-      {action && <FinanceAction action={action} enrollment={enrollment} payment={selectedPayment} token={token} onCancel={() => { setAction(null); setSelectedPayment(null) }} onSaved={saved} />}
+      {action && <FinanceAction action={action} enrollment={enrollment} payment={selectedPayment} pendingBalance={details?.fees.pending_balance} token={token} onCancel={() => { setAction(null); setSelectedPayment(null) }} onRefresh={() => setReloadKey((key) => key + 1)} onSaved={saved} />}
     </Modal>
   )
 }

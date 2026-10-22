@@ -2,7 +2,9 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from app.schemas.lifecycle import ReasonRequest
 
 Money = Annotated[Decimal, Field(gt=0, max_digits=14, decimal_places=2)]
 
@@ -15,6 +17,8 @@ class FeeTermCreate(BaseModel):
 
 
 class FeeTermResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     fee_term_id: int
     enrollment_id: int
     fee_structure_id: int | None
@@ -36,6 +40,8 @@ class FeeAdjustmentCreate(BaseModel):
 
 
 class FeeAdjustmentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     fee_adjustment_id: int
     enrollment_id: int
     adjustment_type: Literal["discount", "fee_increase"]
@@ -72,6 +78,8 @@ class PaymentCreate(BaseModel):
 
 
 class PaymentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     payment_id: int
     enrollment_id: int
     amount: Decimal
@@ -103,6 +111,8 @@ class PaymentAdjustmentCreate(BaseModel):
 
 
 class PaymentAdjustmentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     adjustment_id: int
     payment_id: int
     adjustment_type: Literal["refund", "reversal"]
@@ -115,17 +125,13 @@ class PaymentAdjustmentResponse(BaseModel):
 class ProjectCreate(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
-    project_code: str = Field(min_length=1, max_length=64)
     name: str = Field(min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=4000)
 
-    @field_validator("project_code")
-    @classmethod
-    def normalize_project_code(cls, value: str) -> str:
-        return value.upper()
-
 
 class ProjectResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     project_id: int
     project_code: str
     name: str
@@ -151,12 +157,38 @@ class ProjectAssignmentCreate(BaseModel):
 
 
 class ProjectAssignmentStatusUpdate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
     status: Literal["in_progress", "completed", "cancelled"]
+    reason: str | None = Field(default=None, min_length=1, max_length=500)
+
+    @model_validator(mode="after")
+    def require_cancel_reason(self) -> "ProjectAssignmentStatusUpdate":
+        if self.status == "cancelled" and not self.reason:
+            raise ValueError("A reason is required when cancelling a project assignment")
+        return self
+
+
+class ProjectStatusUpdate(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    status: Literal["active", "archived"]
+    reason: str | None = Field(default=None, min_length=1, max_length=500)
+
+    @model_validator(mode="after")
+    def require_archive_reason(self) -> "ProjectStatusUpdate":
+        if self.status == "archived" and not self.reason:
+            raise ValueError("A reason is required when archiving a project")
+        return self
+
+
+class ProjectDelete(ReasonRequest):
+    pass
 
 
 class ProjectAssignmentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     project_assignment_id: int
     project_id: int
     enrollment_id: int
@@ -182,7 +214,6 @@ class CertificateIssueCreate(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
     enrollment_id: int = Field(gt=0)
-    certificate_number: str = Field(min_length=1, max_length=128)
     certificate_type: str = Field(min_length=1, max_length=128)
     issued_at: datetime | None = None
     document_uri: str | None = Field(default=None, max_length=2048)
@@ -191,7 +222,6 @@ class CertificateIssueCreate(BaseModel):
 class CertificateReplacementCreate(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
-    certificate_number: str = Field(min_length=1, max_length=128)
     issued_at: datetime | None = None
     document_uri: str | None = Field(default=None, max_length=2048)
     reason: str = Field(min_length=1, max_length=500)
@@ -204,6 +234,8 @@ class CertificateEventCreate(BaseModel):
 
 
 class CertificateResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     certificate_id: int
     enrollment_id: int
     certificate_number: str
@@ -222,6 +254,8 @@ class CertificateResponse(BaseModel):
 
 
 class CertificateEventResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     certificate_event_id: int
     certificate_id: int
     event_type: Literal["replaced", "revoked", "corrected"]

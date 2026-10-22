@@ -19,7 +19,7 @@ function CertificateForm({ action, token, onClose, onSaved }) {
   const [enrollments, setEnrollments] = useState([])
   const [loadingEnrollments, setLoadingEnrollments] = useState(action.type === 'issue')
   const [confirmation, setConfirmation] = useState(null)
-  const [values, setValues] = useState({ enrollment_id: '', certificate_number: '', certificate_type: '', issued_at: '', document_uri: '', reason: '' })
+  const [values, setValues] = useState({ enrollment_id: '', certificate_type: '', issued_at: '', document_uri: '', reason: '' })
   const current = action.certificate
   const title = action.type === 'issue' ? 'Issue certificate' : action.type === 'replace' ? 'Replace certificate' : action.type === 'revoke' ? 'Revoke certificate' : 'Record correction'
 
@@ -41,26 +41,22 @@ function CertificateForm({ action, token, onClose, onSaved }) {
     event.preventDefault()
     if (submittingRef.current) return
     const needsReason = ['replace', 'revoke', 'correction'].includes(action.type)
-    if (action.type === 'issue' && (!values.enrollment_id || !values.certificate_number.trim() || !values.certificate_type.trim())) {
-      setError('Select an enrollment and enter a certificate number and type.')
-      return
-    }
-    if (action.type === 'replace' && !values.certificate_number.trim()) {
-      setError('Enter the replacement certificate number.')
+    if (action.type === 'issue' && (!values.enrollment_id || !values.certificate_type.trim())) {
+      setError('Select an enrollment and enter a certificate type.')
       return
     }
     if (needsReason && !values.reason.trim()) {
       setError('Enter a reason of 1 to 500 characters.')
       return
     }
-    if (values.reason.length > 500 || values.certificate_number.length > 128 || values.certificate_type.length > 128 || values.document_uri.length > 2048) {
+    if (values.reason.length > 500 || values.certificate_type.length > 128 || values.document_uri.length > 2048) {
       setError('One or more fields exceed the API length limit.')
       return
     }
     const payload = action.type === 'issue'
-      ? { enrollment_id: Number(values.enrollment_id), certificate_number: values.certificate_number.trim(), certificate_type: values.certificate_type.trim(), issued_at: localToIso(values.issued_at), document_uri: values.document_uri.trim() || null }
+      ? { enrollment_id: Number(values.enrollment_id), certificate_type: values.certificate_type.trim(), issued_at: localToIso(values.issued_at), document_uri: values.document_uri.trim() || null }
       : action.type === 'replace'
-        ? { certificate_number: values.certificate_number.trim(), issued_at: localToIso(values.issued_at), document_uri: values.document_uri.trim() || null, reason: values.reason.trim() }
+        ? { issued_at: localToIso(values.issued_at), document_uri: values.document_uri.trim() || null, reason: values.reason.trim() }
         : { reason: values.reason.trim() }
     setError('')
     setConfirmation(payload)
@@ -92,9 +88,9 @@ function CertificateForm({ action, token, onClose, onSaved }) {
   }
 
   const confirmMessage = action.type === 'issue'
-    ? `Issue certificate ${values.certificate_number} for the selected enrollment? This creates an immutable issuance record.`
+    ? 'Issue a certificate for the selected enrollment? A unique certificate number will be generated, and the issuance record will be immutable.'
     : action.type === 'replace'
-      ? `Replace ${current.certificate_number} with ${values.certificate_number}? The original will remain in history and be marked replaced.`
+      ? `Replace ${current.certificate_number} with a new automatically numbered certificate? The original will remain in history and be marked replaced.`
       : action.type === 'revoke'
         ? `Revoke certificate ${current.certificate_number}? This creates a permanent revocation event.`
         : `Record a correction event for ${current.certificate_number}? The original certificate details will not be rewritten.`
@@ -104,7 +100,7 @@ function CertificateForm({ action, token, onClose, onSaved }) {
       <form onSubmit={submit} noValidate className="grid gap-4">
         {error && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900">{error}</p>}
         {action.type === 'issue' && (loadingEnrollments ? <LoadingState label="Loading enrollments" /> : <div className="grid gap-1.5"><label htmlFor="certificate-enrollment" className="text-sm font-semibold text-ink">Enrollment</label><select id="certificate-enrollment" name="enrollment_id" value={values.enrollment_id} onChange={update} className="min-h-11 rounded-md border border-line bg-white px-3 text-sm"><option value="">Select an enrollment</option>{enrollments.map((enrollment) => <option key={enrollment.enrollment_id} value={enrollment.enrollment_id}>{enrollment.enrollment_number} · {enrollment.status}</option>)}</select></div>)}
-        {(action.type === 'issue' || action.type === 'replace') && <TextField id="certificate-number" name="certificate_number" label={action.type === 'replace' ? 'Replacement certificate number' : 'Certificate number'} maxLength={128} required value={values.certificate_number} onChange={update} />}
+        {(action.type === 'issue' || action.type === 'replace') && <p className="rounded-md bg-orange-50 px-3 py-2 text-sm text-orange-950">A unique certificate number will be generated after confirmation.</p>}
         {action.type === 'issue' && <TextField id="certificate-type" name="certificate_type" label="Certificate type" maxLength={128} required value={values.certificate_type} onChange={update} />}
         {(action.type === 'issue' || action.type === 'replace') && <>
           <TextField id="certificate-issued-at" name="issued_at" label="Issued at (optional)" type="datetime-local" value={values.issued_at} onChange={update} />

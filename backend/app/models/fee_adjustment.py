@@ -11,12 +11,13 @@ from sqlalchemy import (
     Numeric,
     Text,
     UniqueConstraint,
+    Uuid,
     func,
 )
-from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.base import Base
+from app.db.base import Base, DATABASE_SCHEMA
+from app.db.types import UTCDateTime
 
 
 class FeeAdjustment(Base):
@@ -27,17 +28,17 @@ class FeeAdjustment(Base):
             name="ck_fee_adjustments_type",
         ),
         CheckConstraint("amount > 0", name="ck_fee_adjustments_amount"),
-        CheckConstraint("length(btrim(reason)) > 0", name="ck_fee_adjustments_reason"),
+        CheckConstraint("length(trim(reason)) > 0", name="ck_fee_adjustments_reason"),
         UniqueConstraint("idempotency_key", name="uq_fee_adjustments_idempotency_key"),
         Index("ix_fee_adjustments_enrollment_time", "enrollment_id", "approved_at"),
-        {"schema": "internship_management"},
+        {"schema": DATABASE_SCHEMA},
     )
 
     fee_adjustment_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     enrollment_id: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey(
-            "internship_management.enrollments.enrollment_id",
+            f"{DATABASE_SCHEMA}.enrollments.enrollment_id",
             name="fk_fee_adjustments_enrollments",
             ondelete="RESTRICT",
         ),
@@ -45,20 +46,20 @@ class FeeAdjustment(Base):
     )
     adjustment_type: Mapped[str] = mapped_column(Text, nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
-    idempotency_key: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    idempotency_key: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     approved_by: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey(
-            "internship_management.admins.admin_id",
+            f"{DATABASE_SCHEMA}.admins.admin_id",
             name="fk_fee_adjustments_approved_by_admins",
             ondelete="RESTRICT",
         ),
         nullable=False,
     )
     approved_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.transaction_timestamp()
+        UTCDateTime(), nullable=False, server_default=func.current_timestamp()
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.transaction_timestamp()
+        UTCDateTime(), nullable=False, server_default=func.current_timestamp()
     )

@@ -14,15 +14,16 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base
+from app.db.base import Base, DATABASE_SCHEMA
+from app.db.types import UTCDateTime
 
 
 class Batch(Base):
     __tablename__ = "batches"
     __table_args__ = (
-        UniqueConstraint("program_id", "batch_code", name="uq_batches_program_code"),
+        UniqueConstraint("batch_code", name="uq_batches_batch_code"),
         UniqueConstraint("batch_id", "program_id", name="uq_batches_id_program"),
         CheckConstraint("length(trim(batch_code)) > 0", name="ck_batches_code_not_blank"),
         CheckConstraint("length(trim(name)) > 0", name="ck_batches_name_not_blank"),
@@ -33,14 +34,14 @@ class Batch(Base):
             name="ck_batches_status",
         ),
         Index("ix_batches_program_status_dates", "program_id", "status", "starts_on", "ends_on"),
-        {"schema": "internship_management"},
+        {"schema": DATABASE_SCHEMA},
     )
 
     batch_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     program_id: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey(
-            "internship_management.internship_programs.program_id",
+            f"{DATABASE_SCHEMA}.internship_programs.program_id",
             name="fk_batches_programs",
             ondelete="RESTRICT",
         ),
@@ -51,22 +52,32 @@ class Batch(Base):
     starts_on: Mapped[date] = mapped_column(Date, nullable=False)
     ends_on: Mapped[date] = mapped_column(Date, nullable=False)
     capacity: Mapped[int | None] = mapped_column(Integer)
-    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'planned'"))
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'planned'"))
     created_by: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey(
-            "internship_management.admins.admin_id",
+            f"{DATABASE_SCHEMA}.admins.admin_id",
             name="fk_batches_created_by_admins",
             ondelete="RESTRICT",
         ),
         nullable=False,
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.current_timestamp()
+        UTCDateTime(), nullable=False, server_default=func.current_timestamp()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
+        UTCDateTime(),
         nullable=False,
         server_default=func.current_timestamp(),
         onupdate=func.current_timestamp(),
+    )
+    program: Mapped["InternshipProgram"] = relationship("InternshipProgram", back_populates="batches")
+    enrollments: Mapped[list["Enrollment"]] = relationship(
+        "Enrollment",
+        primaryjoin=(
+            "and_(Batch.batch_id == foreign(Enrollment.batch_id), "
+            "Batch.program_id == Enrollment.program_id)"
+        ),
+        back_populates="batch",
+        viewonly=True,
     )

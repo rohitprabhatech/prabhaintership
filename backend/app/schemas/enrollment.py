@@ -1,8 +1,11 @@
 from datetime import date, datetime
 from decimal import Decimal
+from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from app.schemas.lifecycle import ReasonRequest
 
 EnrollmentStatus = Literal["active", "completed", "withdrawn", "cancelled"]
 
@@ -10,10 +13,8 @@ EnrollmentStatus = Literal["active", "completed", "withdrawn", "cancelled"]
 class EnrollmentCreate(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
-    enrollment_number: str = Field(min_length=1, max_length=64)
     student_id: int = Field(gt=0)
-    program_id: int = Field(gt=0)
-    batch_id: int | None = Field(default=None, gt=0)
+    batch_id: int = Field(gt=0)
     starts_on: date
     ends_on: date | None = None
     agreed_fee_amount: Decimal = Field(gt=0, max_digits=14, decimal_places=2)
@@ -27,9 +28,20 @@ class EnrollmentCreate(BaseModel):
 
 
 class EnrollmentStatusUpdate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
     status: EnrollmentStatus
+    reason: str | None = Field(default=None, min_length=1, max_length=500)
+
+    @model_validator(mode="after")
+    def require_cancel_reason(self) -> "EnrollmentStatusUpdate":
+        if self.status in {"cancelled", "withdrawn"} and not self.reason:
+            raise ValueError("A reason is required when cancelling or withdrawing an enrollment")
+        return self
+
+
+class EnrollmentDelete(ReasonRequest):
+    pass
 
 
 class EnrollmentResponse(BaseModel):
@@ -39,7 +51,7 @@ class EnrollmentResponse(BaseModel):
     enrollment_number: str
     student_id: int
     program_id: int
-    batch_id: int | None
+    batch_id: int
     status: EnrollmentStatus
     starts_on: date
     ends_on: date | None
@@ -79,3 +91,32 @@ class BatchRoster(BaseModel):
     capacity: int | None
     active_enrollment_count: int
     students: list[BatchRosterStudent]
+
+
+class BatchFeeSummary(BaseModel):
+    effective_fee: Decimal
+    net_paid: Decimal
+    pending_balance: Decimal
+    currency: Literal["INR"]
+
+
+class BatchStudentRow(BatchRosterStudent):
+    fee_summary: BatchFeeSummary | None
+
+
+class BatchRosterPage(BaseModel):
+    batch_id: int
+    program_id: int
+    batch_code: str
+    name: str
+    starts_on: date
+    ends_on: date
+    capacity: int | None
+    enrollment_count: int
+    active_enrollment_count: int
+    unique_active_student_count: int
+    students: list[BatchStudentRow]
+    total: int
+    page: int
+    page_size: int
+    pages: int

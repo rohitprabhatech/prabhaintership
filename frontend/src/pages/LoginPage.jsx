@@ -76,6 +76,7 @@ export default function LoginPage() {
           </div>
 
           {expired && <div role="status" className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">Your session expired. Sign in again to continue.</div>}
+          {location.state?.notice && <div role="status" className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-900">{location.state.notice}</div>}
           {error && <div className="mb-4"><ErrorState title="Sign-in unsuccessful" message={error} /></div>}
 
           <form onSubmit={handleSubmit} className="grid gap-5" noValidate>

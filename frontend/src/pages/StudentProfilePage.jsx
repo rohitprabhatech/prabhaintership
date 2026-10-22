@@ -11,6 +11,10 @@ function displayDate(value) {
   return value ? new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium' }).format(new Date(value)) : '—'
 }
 
+function displayTimestamp(value) {
+  return value ? new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '—'
+}
+
 function ProfileHistory({ enrollment }) {
   const feeColumns = [
     { key: 'effective_from', label: 'Effective', render: (row) => displayDate(row.effective_from) },
@@ -149,10 +153,25 @@ export default function StudentProfilePage() {
                 {data.student.email ? <a className="inline-flex items-center gap-2 hover:text-orange-700" href={`mailto:${data.student.email}`}><Mail aria-hidden="true" className="h-4 w-4" />{data.student.email}</a> : <span>No email provided</span>}
                 {data.student.phone ? <a className="inline-flex items-center gap-2 hover:text-orange-700" href={`tel:${data.student.phone}`}><Phone aria-hidden="true" className="h-4 w-4" />{data.student.phone}</a> : <span>No phone provided</span>}
               </div>
-              <div className="mt-4 flex items-center gap-3"><StatusBadge status={data.student.status} /><span className="text-xs text-muted">Updated {displayDate(data.student.updated_at)}</span></div>
+              <div className="mt-4 flex flex-wrap items-center gap-3"><StatusBadge status={data.student.status} /><span className="text-xs text-muted">Created {displayDate(data.student.created_at)}</span><span className="text-xs text-muted">Updated {displayDate(data.student.updated_at)}</span></div>
             </div>
             <Button variant="secondary" onClick={() => setEditing(true)}><SquarePen aria-hidden="true" className="h-4 w-4" /> Edit profile</Button>
           </header>
+
+          <section aria-label="Education and location details" className="mb-6 rounded-lg border border-line bg-white p-5 sm:p-7">
+            <h2 className="text-base font-semibold text-ink">Education and location</h2>
+            <dl className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {[
+                ['College or institution', data.student.institution_name],
+                ['Class or course', data.student.course],
+                ['Internship domain', data.student.internship_domain],
+                ['Address', data.student.address],
+                ['City', data.student.city],
+                ['State', data.student.state],
+                ['Postal code', data.student.postal_code],
+              ].map(([label, value]) => <div key={label}><dt className="text-xs font-semibold uppercase text-muted">{label}</dt><dd className="mt-1 whitespace-pre-wrap text-sm text-ink">{value || 'Not provided'}</dd></div>)}
+            </dl>
+          </section>
 
           <div className="mb-4 flex items-end justify-between gap-3">
             <div><h2 className="text-lg font-semibold text-ink">Enrollment history</h2><p className="mt-1 text-sm text-muted">Read-only program, fee, payment, project, and certificate records.</p></div>
@@ -161,6 +180,24 @@ export default function StudentProfilePage() {
           {data.history.length ? <div className="grid gap-4">{data.history.map((enrollment) => <ProfileHistory key={enrollment.enrollment_id} enrollment={enrollment} />)}</div> : (
             <EmptyState title="No enrollment history" description="This student does not have any enrollment records yet." />
           )}
+          <section className="mt-6 rounded-lg border border-line bg-white p-4 sm:p-6" aria-label="Student activity">
+            <h2 className="text-lg font-semibold text-ink">Activity</h2>
+            <p className="mt-1 text-sm text-muted">Recent authorized changes to this student and their enrollments.</p>
+            <div className="mt-4">
+              <DataTable
+                columns={[
+                  { key: 'occurred_at', label: 'Date', render: (row) => displayTimestamp(row.occurred_at) },
+                  { key: 'action', label: 'Activity', render: (row) => row.action.replaceAll('_', ' ') },
+                  { key: 'target_type', label: 'Record', render: (row) => row.target_type ? `${row.target_type} ${row.target_id}` : '—' },
+                  { key: 'outcome', label: 'Outcome', render: (row) => <StatusBadge status={row.outcome} /> },
+                ]}
+                rows={data.activity || []}
+                getRowKey={(row) => row.audit_log_id}
+                caption="Student activity history"
+                emptyMessage="No activity has been recorded for this student."
+              />
+            </div>
+          </section>
         </>
       )}
       {editing && data && <StudentForm student={data.student} token={token} onClose={() => setEditing(false)} onSaved={saveStudent} />}

@@ -2,8 +2,10 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { useAuth } from './auth/AuthProvider.jsx'
 import { LoadingState } from './components/ui.jsx'
 import AdminLayout from './layout/AdminLayout.jsx'
+import BatchDetailsPage from './pages/BatchDetailsPage.jsx'
 import BatchesPage from './pages/BatchesPage.jsx'
 import CertificatesPage from './pages/CertificatesPage.jsx'
+import ChangePasswordPage from './pages/ChangePasswordPage.jsx'
 import DashboardPage from './pages/DashboardPage.jsx'
 import EnrollmentsPage from './pages/EnrollmentsPage.jsx'
 import FinancePage from './pages/FinancePage.jsx'
@@ -29,11 +31,13 @@ function ProtectedRoutes() {
         <Route path="students/:studentId" element={<StudentProfilePage />} />
         <Route path="programs" element={<ProgramsPage />} />
         <Route path="batches" element={<BatchesPage />} />
+        <Route path="batches/:batchId" element={<BatchDetailsPage />} />
         <Route path="enrollments" element={<EnrollmentsPage />} />
         <Route path="finance" element={<FinancePage />} />
         <Route path="projects" element={<ProjectsPage />} />
         <Route path="certificates" element={<CertificatesPage />} />
         <Route path="reports" element={<ReportsPage />} />
+        <Route path="change-password" element={<ChangePasswordPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

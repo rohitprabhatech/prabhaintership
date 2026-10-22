@@ -35,7 +35,9 @@ def test_unconfigured_cors_origin_is_not_allowed() -> None:
 def test_trusted_origin_can_preflight_patch(monkeypatch) -> None:
     settings = Settings(
         app_env="test",
-        database_url="postgresql+psycopg://test:test@localhost/test",
+        db_name="internship_management_test",
+        db_user="test",
+        db_password="test-only-password",
         jwt_secret_key="test-only-secret-value-not-for-production-0123456789",
         cors_origins=["http://admin.example.test"],
     )
@@ -60,7 +62,9 @@ def test_trusted_origin_can_preflight_patch(monkeypatch) -> None:
 def test_trusted_origin_can_preflight_idempotency_header(monkeypatch) -> None:
     settings = Settings(
         app_env="test",
-        database_url="postgresql+psycopg://test:test@localhost/test",
+        db_name="internship_management_test",
+        db_user="test",
+        db_password="test-only-password",
         jwt_secret_key="test-only-secret-value-not-for-production-0123456789",
         cors_origins=["http://admin.example.test"],
     )

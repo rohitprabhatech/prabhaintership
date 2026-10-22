@@ -20,9 +20,19 @@ def no_database_client():
     ("method", "path", "payload"),
     [
         ("get", "/api/v1/students", None),
-        ("post", "/api/v1/students", {"student_number": "PT-1", "full_name": "Test"}),
+        ("post", "/api/v1/students", {"full_name": "Test"}),
         ("get", "/api/v1/students/1", None),
         ("patch", "/api/v1/students/1", {"full_name": "Updated"}),
+        ("delete", "/api/v1/students/1", None),
+        ("get", "/api/v1/students/1/dependencies", None),
+        ("delete", "/api/v1/programs/1", None),
+        ("get", "/api/v1/programs/1/dependencies", None),
+        ("delete", "/api/v1/batches/1", None),
+        ("get", "/api/v1/batches/1/dependencies", None),
+        ("delete", "/api/v1/enrollments/1", None),
+        ("get", "/api/v1/enrollments/1/dependencies", None),
+        ("delete", "/api/v1/projects/1", None),
+        ("get", "/api/v1/projects/1/dependencies", None),
     ],
 )
 def test_every_student_operation_requires_admin(
@@ -34,9 +44,3 @@ def test_every_student_operation_requires_admin(
 
     assert response.status_code == 401
     assert response.json()["code"] == "authentication_required"
-
-
-def test_student_delete_route_is_not_registered(no_database_client) -> None:
-    response = no_database_client.delete("/api/v1/students/1")
-
-    assert response.status_code == 405

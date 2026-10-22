@@ -3,16 +3,19 @@ from datetime import datetime
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
+    Computed,
     DateTime,
     ForeignKey,
     Index,
+    String,
     Text,
     func,
     text,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base
+from app.db.base import Base, DATABASE_SCHEMA
+from app.db.types import UTCDateTime
 
 
 class CertificateEvent(Base):
@@ -22,11 +25,7 @@ class CertificateEvent(Base):
             "event_type IN ('replaced', 'revoked', 'corrected')",
             name="ck_certificate_events_type",
         ),
-        CheckConstraint(
-            "related_certificate_id IS NULL OR related_certificate_id <> certificate_id",
-            name="ck_certificate_events_not_self_related",
-        ),
-        CheckConstraint("length(btrim(reason)) > 0", name="ck_certificate_events_reason"),
+        CheckConstraint("length(trim(reason)) > 0", name="ck_certificate_events_reason"),
         CheckConstraint(
             "(event_type = 'replaced' AND related_certificate_id IS NOT NULL) "
             "OR (event_type IN ('revoked', 'corrected') AND related_certificate_id IS NULL)",
@@ -40,11 +39,10 @@ class CertificateEvent(Base):
         ),
         Index(
             "ux_certificate_events_one_terminal_state",
-            "certificate_id",
+            "terminal_certificate_id",
             unique=True,
-            postgresql_where=text("event_type IN ('replaced', 'revoked')"),
         ),
-        {"schema": "internship_management"},
+        {"schema": DATABASE_SCHEMA},
     )
 
     certificate_event_id: Mapped[int] = mapped_column(
@@ -53,34 +51,43 @@ class CertificateEvent(Base):
     certificate_id: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey(
-            "internship_management.certificates.certificate_id",
+            f"{DATABASE_SCHEMA}.certificates.certificate_id",
             name="fk_certificate_events_certificates",
             ondelete="RESTRICT",
         ),
         nullable=False,
     )
-    event_type: Mapped[str] = mapped_column(Text, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    terminal_certificate_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        Computed("CASE WHEN event_type IN ('replaced', 'revoked') THEN certificate_id ELSE NULL END", persisted=True),
+    )
     related_certificate_id: Mapped[int | None] = mapped_column(
         BigInteger,
         ForeignKey(
-            "internship_management.certificates.certificate_id",
+            f"{DATABASE_SCHEMA}.certificates.certificate_id",
             name="fk_certificate_events_related_certificates",
             ondelete="RESTRICT",
         ),
     )
     occurred_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.transaction_timestamp()
+        UTCDateTime(), nullable=False, server_default=func.current_timestamp()
     )
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     recorded_by: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey(
-            "internship_management.admins.admin_id",
+            f"{DATABASE_SCHEMA}.admins.admin_id",
             name="fk_certificate_events_recorded_by_admins",
             ondelete="RESTRICT",
         ),
         nullable=False,
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.transaction_timestamp()
+        UTCDateTime(), nullable=False, server_default=func.current_timestamp()
+    )
+    certificate: Mapped["Certificate"] = relationship(
+        "Certificate",
+        back_populates="events",
+        foreign_keys=[certificate_id],
     )

@@ -7,37 +7,41 @@ Create Date: 2026-10-16
 
 import sqlalchemy as sa
 from alembic import op
+from app.config import MigrationSettings
 
 revision = "0004_create_students"
 down_revision = "0003_admin_login_throttles"
 branch_labels = None
 depends_on = None
+SCHEMA = MigrationSettings().db_name
 
 
 def upgrade() -> None:
     op.create_table(
         "students",
         sa.Column("student_id", sa.BigInteger(), sa.Identity(always=True), primary_key=True),
-        sa.Column("student_number", sa.Text(), nullable=False),
-        sa.Column("full_name", sa.Text(), nullable=False),
-        sa.Column("email", sa.Text(), nullable=True),
-        sa.Column("phone", sa.Text(), nullable=True),
-        sa.Column("status", sa.Text(), server_default=sa.text("'active'"), nullable=False),
+        sa.Column("student_number", sa.String(length=64), nullable=False),
+        sa.Column("full_name", sa.String(length=200), nullable=False),
+        sa.Column("name_search_key", sa.String(length=200), sa.Computed("lower(full_name)", persisted=True)),
+        sa.Column("email", sa.String(length=254), nullable=True),
+        sa.Column("email_normalized", sa.String(length=254), sa.Computed("lower(email)", persisted=True)),
+        sa.Column("phone", sa.String(length=64), nullable=True),
+        sa.Column("status", sa.String(length=16), server_default=sa.text("'active'"), nullable=False),
         sa.Column("created_by", sa.BigInteger(), nullable=False),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
-            server_default=sa.func.transaction_timestamp(),
+            server_default=sa.func.current_timestamp(),
             nullable=False,
         ),
         sa.Column(
             "updated_at",
             sa.DateTime(timezone=True),
-            server_default=sa.func.transaction_timestamp(),
+            server_default=sa.func.current_timestamp(),
             nullable=False,
         ),
         sa.Column("archived_at", sa.DateTime(timezone=True), nullable=True),
-        sa.CheckConstraint("length(btrim(full_name)) > 0", name="ck_students_name_not_blank"),
+        sa.CheckConstraint("length(trim(full_name)) > 0", name="ck_students_name_not_blank"),
         sa.CheckConstraint("status IN ('active', 'archived')", name="ck_students_status"),
         sa.CheckConstraint(
             "(status = 'archived' AND archived_at IS NOT NULL) "
@@ -46,44 +50,43 @@ def upgrade() -> None:
         ),
         sa.ForeignKeyConstraint(
             ["created_by"],
-            ["internship_management.admins.admin_id"],
+            [f"{SCHEMA}.admins.admin_id"],
             name="fk_students_created_by_admins",
             ondelete="RESTRICT",
         ),
         sa.PrimaryKeyConstraint("student_id"),
         sa.UniqueConstraint("student_number", name="uq_students_student_number"),
-        schema="internship_management",
+        schema=SCHEMA,
     )
     op.create_index(
-        "ux_students_email_lower",
-        "students",
-        [sa.text("lower(email)")],
+            "ux_students_email_lower",
+            "students",
+            ["email_normalized"],
         unique=True,
-        schema="internship_management",
-        postgresql_where=sa.text("email IS NOT NULL"),
+        schema=SCHEMA,
     )
     op.create_index(
         "ix_students_name_lower",
         "students",
-        [sa.text("lower(full_name)")],
-        schema="internship_management",
+        ["name_search_key"],
+        schema=SCHEMA,
     )
     op.create_index(
         "ix_students_status_created",
         "students",
-        ["status", sa.text("created_at DESC")],
-        schema="internship_management",
+        ["status", "created_at"],
+        schema=SCHEMA,
     )
 
 
 def downgrade() -> None:
     op.drop_index(
-        "ix_students_status_created", table_name="students", schema="internship_management"
+        "ix_students_status_created", table_name="students", schema=SCHEMA
     )
     op.drop_index(
-        "ix_students_name_lower", table_name="students", schema="internship_management"
+        "ix_students_name_lower", table_name="students", schema=SCHEMA
     )
     op.drop_index(
-        "ux_students_email_lower", table_name="students", schema="internship_management"
+        "ux_students_email_lower", table_name="students", schema=SCHEMA
     )
-    op.drop_table("students", schema="internship_management")
+    op.drop_table("students", schema=SCHEMA)

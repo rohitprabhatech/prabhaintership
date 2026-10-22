@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import delete, select
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.dialects.mysql import insert
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -27,10 +27,16 @@ def check_login_rate_limit(session: Session, key_hash: str) -> RateLimitDecision
             AdminLoginThrottle.updated_at < now - timedelta(seconds=retention_seconds)
         )
     )
+    statement = insert(AdminLoginThrottle).values(
+        client_key_hash=key_hash,
+        window_started_at=now,
+        failure_count=0,
+        updated_at=now,
+    )
     session.execute(
-        insert(AdminLoginThrottle)
-        .values(client_key_hash=key_hash, window_started_at=now, failure_count=0, updated_at=now)
-        .on_conflict_do_nothing(index_elements=[AdminLoginThrottle.client_key_hash])
+        statement.on_duplicate_key_update(
+            client_key_hash=AdminLoginThrottle.client_key_hash
+        )
     )
     bucket = session.scalar(
         select(AdminLoginThrottle)

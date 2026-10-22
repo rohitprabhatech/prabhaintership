@@ -5,6 +5,9 @@ from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
+from sqlalchemy import func, select
+
+from app.models.payment import Payment
 
 from app.schemas.finance import FeeAdjustmentCreate, PaymentCreate
 
@@ -32,22 +35,20 @@ def admin_headers(api_client, db_session) -> dict[str, str]:
 
 
 def create_program(api_client, headers: dict[str, str]) -> dict:
-    code = f"S5-{uuid4().hex[:10]}"
     response = api_client.post(
         "/api/v1/programs",
         headers=headers,
-        json={"program_code": code, "name": f"Program {code}", "status": "active"},
+        json={"name": f"Program {uuid4().hex[:10]}", "duration_months": 3, "status": "active"},
     )
     assert response.status_code == 201
     return response.json()
 
 
 def create_student(api_client, headers: dict[str, str]) -> dict:
-    number = f"S5-{uuid4().hex[:10]}"
     response = api_client.post(
         "/api/v1/students",
         headers=headers,
-        json={"student_number": number, "full_name": f"Student {number}"},
+        json={"full_name": f"Student {uuid4().hex[:10]}"},
     )
     assert response.status_code == 201
     return response.json()
@@ -64,14 +65,12 @@ def create_enrollment(
     student = create_student(api_client, headers)
     start = date.today() + timedelta(days=1)
     end = start + timedelta(days=60)
-    batch_code = f"S5B-{uuid4().hex[:8]}"
     batch_response = api_client.post(
         "/api/v1/batches",
         headers=headers,
         json={
             "program_id": program["program_id"],
-            "batch_code": batch_code,
-            "name": f"Batch {batch_code}",
+            "name": f"Batch {uuid4().hex[:8]}",
             "starts_on": start.isoformat(),
             "ends_on": end.isoformat(),
             "capacity": capacity,
@@ -83,9 +82,7 @@ def create_enrollment(
         "/api/v1/enrollments",
         headers=headers,
         json={
-            "enrollment_number": f"S5E-{uuid4().hex[:10]}",
             "student_id": student["student_id"],
-            "program_id": program["program_id"],
             "batch_id": batch["batch_id"],
             "starts_on": start.isoformat(),
             "ends_on": end.isoformat(),
@@ -147,6 +144,65 @@ def test_overpayment_and_non_cent_precision_are_rejected(api_client, admin_heade
     assert invalid_precision.status_code == 422
     invalid_zero = post_payment(api_client, admin_headers, enrollment_id, "0.00")
     assert invalid_zero.status_code == 422
+
+
+@pytest.mark.integration
+def test_payment_rejects_invalid_enrollment_and_requires_admin(api_client, admin_headers) -> None:
+    payload = {"amount": "1.00", "payment_method": "upi"}
+    key = str(uuid4())
+
+    unauthorized = api_client.post(
+        "/api/v1/enrollments/999999/payments",
+        headers={"Idempotency-Key": key},
+        json=payload,
+    )
+    assert unauthorized.status_code == 401
+
+    missing_enrollment = api_client.post(
+        "/api/v1/enrollments/999999/payments",
+        headers={**admin_headers, "Idempotency-Key": str(uuid4())},
+        json=payload,
+    )
+    assert missing_enrollment.status_code == 404
+    assert missing_enrollment.json()["code"] == "enrollment_not_found"
+
+
+@pytest.mark.integration
+def test_payment_reference_conflict_rolls_back_insert(api_client, admin_headers, db_session) -> None:
+    _, _, first_enrollment = create_enrollment(api_client, admin_headers)
+    _, _, second_enrollment = create_enrollment(api_client, admin_headers)
+    reference = f"QA-{uuid4().hex}"
+
+    first = api_client.post(
+        f"/api/v1/enrollments/{first_enrollment['enrollment_id']}/payments",
+        headers={**admin_headers, "Idempotency-Key": str(uuid4())},
+        json={
+            "amount": "100.00",
+            "payment_method": "upi",
+            "payment_reference": reference,
+        },
+    )
+    assert first.status_code == 201
+
+    duplicate = api_client.post(
+        f"/api/v1/enrollments/{second_enrollment['enrollment_id']}/payments",
+        headers={**admin_headers, "Idempotency-Key": str(uuid4())},
+        json={
+            "amount": "100.00",
+            "payment_method": "upi",
+            "payment_reference": reference,
+        },
+    )
+    assert duplicate.status_code == 409
+    assert duplicate.json()["code"] == "payment_conflict"
+    assert (
+        db_session.scalar(
+            select(func.count())
+            .select_from(Payment)
+            .where(Payment.enrollment_id == second_enrollment["enrollment_id"])
+        )
+        == 0
+    )
 
 
 @pytest.mark.integration
@@ -251,20 +307,32 @@ def test_refund_cannot_exceed_receipt_and_reversal_must_be_full(api_client, admi
 def test_project_assignment_completion_and_certificate_lifecycle(api_client, admin_headers) -> None:
     _, _, enrollment = create_enrollment(api_client, admin_headers)
     enrollment_id = enrollment["enrollment_id"]
-    code = f"PRJ-{uuid4().hex[:10]}"
     project_response = api_client.post(
         "/api/v1/projects",
         headers=admin_headers,
-        json={"project_code": code, "name": "Inventory API"},
+        json={"name": "Inventory API"},
     )
     assert project_response.status_code == 201
     project = project_response.json()
+    assert project["project_code"].startswith("PRJ-")
     assigned = api_client.post(
         f"/api/v1/enrollments/{enrollment_id}/projects",
         headers=admin_headers,
         json={"project_id": project["project_id"]},
     )
     assert assigned.status_code == 201
+    dependencies = api_client.get(
+        f"/api/v1/projects/{project['project_id']}/dependencies", headers=admin_headers
+    )
+    assert dependencies.status_code == 200
+    assert dependencies.json()["can_delete"] is False
+    blocked_delete = api_client.delete(
+        f"/api/v1/projects/{project['project_id']}",
+        headers=admin_headers,
+        json={"reason": "Retain assignment history"},
+    )
+    assert blocked_delete.status_code == 409
+    assert blocked_delete.json()["code"] == "project_has_history"
     progressing = api_client.patch(
         f"/api/v1/project-assignments/{assigned.json()['project_assignment_id']}/status",
         headers=admin_headers,
@@ -278,27 +346,33 @@ def test_project_assignment_completion_and_certificate_lifecycle(api_client, adm
     assert progressing.status_code == 200
     assert completed.status_code == 200
     assert completed.json()["completed_at"] is not None
+    archived = api_client.patch(
+        f"/api/v1/projects/{project['project_id']}/status",
+        headers=admin_headers,
+        json={"status": "archived", "reason": "Project delivery archived"},
+    )
+    assert archived.status_code == 200
+    assert archived.json()["status"] == "archived"
 
     certificate = api_client.post(
         "/api/v1/certificates",
         headers=admin_headers,
         json={
             "enrollment_id": enrollment_id,
-            "certificate_number": f"CERT-{uuid4().hex[:12]}",
             "certificate_type": "completion",
         },
     )
     assert certificate.status_code == 201
+    assert certificate.json()["certificate_number"].startswith("CERT-")
     certificate_id = certificate.json()["certificate_id"]
     replacement = api_client.post(
         f"/api/v1/certificates/{certificate_id}/replacement",
         headers=admin_headers,
-        json={
-            "certificate_number": f"CERT-{uuid4().hex[:12]}",
-            "reason": "Corrected spelling",
-        },
+        json={"reason": "Corrected spelling"},
     )
     assert replacement.status_code == 201
+    assert replacement.json()["certificate_number"].startswith("CERT-")
+    assert replacement.json()["certificate_number"] != certificate.json()["certificate_number"]
     original_status = api_client.get(
         f"/api/v1/certificates/{certificate_id}", headers=admin_headers
     )

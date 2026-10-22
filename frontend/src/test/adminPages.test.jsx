@@ -24,11 +24,15 @@ vi.mock('../lib/studentData.js', () => ({
 
 vi.mock('../lib/adminData.js', async (importOriginal) => {
   const actual = await importOriginal()
-  return { ...actual, loadDashboard: vi.fn() }
+  return {
+    ...actual,
+    getAllPages: vi.fn().mockResolvedValue({ items: [], pages: 0 }),
+    loadDashboard: vi.fn(),
+  }
 })
 
 import { ApiError, apiRequest } from '../lib/api.js'
-import { loadDashboard } from '../lib/adminData.js'
+import { getAllPages, loadDashboard } from '../lib/adminData.js'
 import { loadStudentList, loadStudentProfile } from '../lib/studentData.js'
 import DashboardPage from '../pages/DashboardPage.jsx'
 import StudentProfilePage from '../pages/StudentProfilePage.jsx'
@@ -40,6 +44,13 @@ const student = {
   full_name: 'Asha Patel',
   email: 'asha@example.com',
   phone: '+91 98765 43210',
+  address: null,
+  city: null,
+  state: null,
+  postal_code: null,
+  institution_name: null,
+  course: null,
+  internship_domain: null,
   status: 'active',
   created_by: 1,
   created_at: '2026-01-01T00:00:00Z',
@@ -72,13 +83,13 @@ function renderProfile() {
 }
 
 function fillStudentForm(dialog) {
-  fireEvent.change(within(dialog).getByLabelText('Student number'), { target: { value: 'PT-008' } })
   fireEvent.change(within(dialog).getByLabelText('Full name'), { target: { value: 'Ravi Kumar' } })
 }
 
 describe('admin dashboard and student workflows', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    getAllPages.mockResolvedValue({ items: [], pages: 0 })
     loadStudentList.mockResolvedValue(studentPage)
     loadStudentProfile.mockResolvedValue({ student, history: [] })
   })
@@ -125,7 +136,7 @@ describe('admin dashboard and student workflows', () => {
     const dialog = screen.getByRole('dialog', { name: 'Add student' })
     const form = dialog.querySelector('form')
     fireEvent.submit(form)
-    expect(await within(dialog).findByText('Enter a student number.')).toBeInTheDocument()
+    expect(await within(dialog).findByText('Enter the student name.')).toBeInTheDocument()
     expect(apiRequest).not.toHaveBeenCalled()
 
     fillStudentForm(dialog)
@@ -135,7 +146,7 @@ describe('admin dashboard and student workflows', () => {
     expect(apiRequest).toHaveBeenCalledWith('students', expect.objectContaining({ method: 'POST', token: 'admin-token' }))
 
     resolveRequest({ ...student, student_id: 8, student_number: 'PT-008', full_name: 'Ravi Kumar' })
-    expect(await screen.findByRole('status')).toHaveTextContent('Ravi Kumar saved successfully.')
+    expect(await screen.findByRole('status')).toHaveTextContent('PT-008 · Ravi Kumar saved successfully.')
     await waitFor(() => expect(loadStudentList).toHaveBeenCalledTimes(2))
   })
 
@@ -148,6 +159,9 @@ describe('admin dashboard and student workflows', () => {
     await user.selectOptions(within(dialog).getByLabelText('Record status'), 'archived')
     apiRequest.mockResolvedValueOnce({ ...student, status: 'archived' })
     await user.click(within(dialog).getByRole('button', { name: 'Save changes' }))
+    const confirmation = screen.getByRole('alertdialog')
+    await user.type(within(confirmation).getByLabelText('Reason for archiving'), 'Records review completed')
+    await user.click(within(confirmation).getByRole('button', { name: 'Archive student' }))
     expect(apiRequest).toHaveBeenCalledWith('students/7', expect.objectContaining({
       method: 'PATCH',
       body: expect.stringContaining('"status":"archived"'),
@@ -157,9 +171,9 @@ describe('admin dashboard and student workflows', () => {
     await user.click(screen.getByRole('button', { name: 'Add student' }))
     const createDialog = screen.getByRole('dialog', { name: 'Add student' })
     fillStudentForm(createDialog)
-    apiRequest.mockRejectedValueOnce(new ApiError('Request failed', { status: 409, code: 'duplicate_student_number' }))
+    apiRequest.mockRejectedValueOnce(new ApiError('Request failed', { status: 409, code: 'duplicate_student_email' }))
     await user.click(within(createDialog).getByRole('button', { name: 'Add student' }))
-    expect(await within(createDialog).findByRole('alert')).toHaveTextContent('That student number is already in use.')
+    expect(await within(createDialog).findByRole('alert')).toHaveTextContent('That email address is already in use.')
   })
 
   it('shows fee, payment, project, and certificate history from the profile response', async () => {

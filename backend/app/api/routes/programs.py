@@ -1,19 +1,41 @@
 from typing import Annotated, Literal
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, Path, Query, Response, status
+from fastapi import APIRouter, Depends, Path, Query, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_admin
 from app.db.session import get_db
 from app.models.admin import Admin
-from app.schemas.program import ProgramCreate, ProgramPage, ProgramResponse, ProgramUpdate
-from app.services.program_service import create_program, get_program, list_programs, update_program
+from app.schemas.lifecycle import DependencySummary
+from app.schemas.program import (
+    ProgramCreate,
+    ProgramDelete,
+    ProgramPage,
+    ProgramResponse,
+    ProgramUpdate,
+)
+from app.services.program_service import (
+    create_program,
+    delete_program,
+    get_program,
+    list_programs,
+    program_dependencies,
+    update_program,
+)
 
 router = APIRouter(
     prefix="/programs",
     tags=["internship-programs"],
     dependencies=[Depends(get_current_admin)],
 )
+
+
+def _request_id(request: Request) -> UUID | None:
+    try:
+        return UUID(request.state.request_id)
+    except (AttributeError, ValueError):
+        return None
 
 
 @router.post("", response_model=ProgramResponse, status_code=status.HTTP_201_CREATED)
@@ -58,6 +80,32 @@ def get_program_endpoint(
 def update_program_endpoint(
     program_id: Annotated[int, Path(gt=0)],
     payload: ProgramUpdate,
+    request: Request,
     session: Session = Depends(get_db),
+    admin: Admin = Depends(get_current_admin),
 ) -> ProgramResponse:
-    return ProgramResponse.model_validate(update_program(session, program_id, payload))
+    return ProgramResponse.model_validate(
+        update_program(session, program_id, payload, admin.admin_id, _request_id(request))
+    )
+
+
+@router.get("/{program_id}/dependencies", response_model=DependencySummary)
+def program_dependencies_endpoint(
+    program_id: Annotated[int, Path(gt=0)],
+    session: Session = Depends(get_db),
+) -> DependencySummary:
+    return program_dependencies(session, program_id)
+
+
+@router.delete("/{program_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_program_endpoint(
+    program_id: Annotated[int, Path(gt=0)],
+    payload: ProgramDelete,
+    request: Request,
+    session: Session = Depends(get_db),
+    admin: Admin = Depends(get_current_admin),
+) -> Response:
+    delete_program(
+        session, program_id, payload.reason, admin.admin_id, _request_id(request)
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

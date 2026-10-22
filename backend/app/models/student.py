@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
+    Computed,
     DateTime,
     ForeignKey,
     Index,
@@ -12,9 +13,10 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base
+from app.db.base import Base, DATABASE_SCHEMA
+from app.db.types import UTCDateTime
 
 
 class Student(Base):
@@ -35,7 +37,7 @@ class Student(Base):
         ),
         Index("ix_students_name_lower", "name_search_key"),
         Index("ix_students_status_created", "status", text("created_at DESC")),
-        {"schema": "internship_management"},
+        {"schema": DATABASE_SCHEMA},
     )
 
     student_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
@@ -46,26 +48,34 @@ class Student(Base):
         String(254), Computed("lower(email)", persisted=True)
     )
     phone: Mapped[str | None] = mapped_column(String(64))
-    name_search_key: Mapped[str] = mapped_column(
-        String(200), Computed("lower(full_name)", persisted=True)
+    address: Mapped[str | None] = mapped_column(Text)
+    city: Mapped[str | None] = mapped_column(String(120))
+    state: Mapped[str | None] = mapped_column(String(120))
+    postal_code: Mapped[str | None] = mapped_column(String(32))
+    institution_name: Mapped[str | None] = mapped_column(String(200))
+    course: Mapped[str | None] = mapped_column(String(200))
+    internship_domain: Mapped[str | None] = mapped_column(String(120))
+    name_search_key: Mapped[str | None] = mapped_column(
+        String(200), Computed("lower(full_name)", persisted=True), nullable=True
     )
-    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'active'"))
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'active'"))
     created_by: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey(
-            "internship_management.admins.admin_id",
+            f"{DATABASE_SCHEMA}.admins.admin_id",
             name="fk_students_created_by_admins",
             ondelete="RESTRICT",
         ),
         nullable=False,
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.current_timestamp()
+        UTCDateTime(), nullable=False, server_default=func.current_timestamp()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
+        UTCDateTime(),
         nullable=False,
         server_default=func.current_timestamp(),
         onupdate=func.current_timestamp(),
     )
-    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    archived_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    enrollments: Mapped[list["Enrollment"]] = relationship("Enrollment", back_populates="student")

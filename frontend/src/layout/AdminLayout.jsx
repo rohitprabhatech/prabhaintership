@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
   BadgeIndianRupee, BookOpen, Boxes, BriefcaseBusiness, Building2, ChevronRight, FileText,
-  ClipboardList, FileBadge, GraduationCap, LayoutDashboard, LogOut, Menu, X,
+  ClipboardList, FileBadge, GraduationCap, KeyRound, LayoutDashboard, LogOut, Menu, X,
 } from 'lucide-react'
 import { useAuth } from '../auth/AuthProvider.jsx'
 import { Button } from '../components/ui.jsx'
@@ -17,6 +17,7 @@ const navigation = [
   { label: 'Projects', to: '/projects', icon: BriefcaseBusiness },
   { label: 'Certificates', to: '/certificates', icon: FileBadge },
   { label: 'Reports', to: '/reports', icon: FileText },
+  { label: 'Change password', to: '/change-password', icon: KeyRound },
 ]
 
 function Brand() {

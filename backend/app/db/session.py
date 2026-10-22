@@ -12,6 +12,7 @@ def get_session_factory() -> sessionmaker[Session]:
     engine = create_engine(
         get_settings().database_url,
         connect_args=get_settings().database_connect_args,
+        isolation_level="READ COMMITTED",
         pool_pre_ping=True,
         pool_size=5,
         max_overflow=5,
@@ -24,8 +25,10 @@ def get_admin_provisioning_session_factory() -> sessionmaker[Session]:
     database_url = get_admin_provisioning_settings().database_url
     engine = create_engine(
         database_url,
+        connect_args=get_admin_provisioning_settings().database_connect_args,
+        isolation_level="READ COMMITTED",
         pool_pre_ping=True,
-        pool_size=1,
+        pool_size=2,
         max_overflow=0,
     )
     return sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)

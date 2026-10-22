@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.schemas.lifecycle import ReasonRequest
+
 BatchStatus = Literal["planned", "active", "completed", "cancelled"]
 
 
@@ -10,17 +12,11 @@ class BatchCreate(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
     program_id: int = Field(gt=0)
-    batch_code: str = Field(min_length=1, max_length=64)
     name: str = Field(min_length=1, max_length=200)
     starts_on: date
     ends_on: date
     capacity: int | None = Field(default=None, gt=0, le=100000)
     status: Literal["planned", "active"] = "planned"
-
-    @field_validator("batch_code", mode="before")
-    @classmethod
-    def normalize_code(cls, value: object) -> object:
-        return value.strip().upper() if isinstance(value, str) else value
 
     @field_validator("name", mode="before")
     @classmethod
@@ -42,8 +38,9 @@ class BatchUpdate(BaseModel):
     ends_on: date | None = None
     capacity: int | None = Field(default=None, gt=0, le=100000)
     status: BatchStatus | None = None
+    reason: str | None = Field(default=None, min_length=1, max_length=500)
 
-    @field_validator("name", mode="before")
+    @field_validator("name", "reason", mode="before")
     @classmethod
     def normalize_name(cls, value: object) -> object:
         return value.strip() if isinstance(value, str) else value
@@ -61,7 +58,13 @@ class BatchUpdate(BaseModel):
             and self.ends_on < self.starts_on
         ):
             raise ValueError("Batch end date must not precede start date")
+        if self.status == "cancelled" and not self.reason:
+            raise ValueError("A reason is required when cancelling a batch")
         return self
+
+
+class BatchDelete(ReasonRequest):
+    pass
 
 
 class BatchResponse(BaseModel):
@@ -80,8 +83,16 @@ class BatchResponse(BaseModel):
     updated_at: datetime
 
 
+class BatchListItem(BatchResponse):
+    program_name: str
+    program_code: str
+    enrollment_count: int
+    active_enrollment_count: int
+    unique_active_student_count: int
+
+
 class BatchPage(BaseModel):
-    items: list[BatchResponse]
+    items: list[BatchListItem]
     total: int
     page: int
     page_size: int

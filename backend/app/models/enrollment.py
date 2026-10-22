@@ -15,9 +15,10 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base
+from app.db.base import Base, DATABASE_SCHEMA
+from app.db.types import UTCDateTime
 
 
 class Enrollment(Base):
@@ -26,8 +27,8 @@ class Enrollment(Base):
         ForeignKeyConstraint(
             ["batch_id", "program_id"],
             [
-                "internship_management.batches.batch_id",
-                "internship_management.batches.program_id",
+                f"{DATABASE_SCHEMA}.batches.batch_id",
+                f"{DATABASE_SCHEMA}.batches.program_id",
             ],
             name="fk_enrollments_batch_program",
             ondelete="RESTRICT",
@@ -56,7 +57,7 @@ class Enrollment(Base):
             "active_batch_key",
             unique=True,
         ),
-        {"schema": "internship_management"},
+        {"schema": DATABASE_SCHEMA},
     )
 
     enrollment_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
@@ -64,7 +65,7 @@ class Enrollment(Base):
     student_id: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey(
-            "internship_management.students.student_id",
+            f"{DATABASE_SCHEMA}.students.student_id",
             name="fk_enrollments_students",
             ondelete="RESTRICT",
         ),
@@ -73,13 +74,13 @@ class Enrollment(Base):
     program_id: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey(
-            "internship_management.internship_programs.program_id",
+            f"{DATABASE_SCHEMA}.internship_programs.program_id",
             name="fk_enrollments_programs",
             ondelete="RESTRICT",
         ),
         nullable=False,
     )
-    batch_id: Mapped[int | None] = mapped_column(BigInteger)
+    batch_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     active_batch_key: Mapped[int | None] = mapped_column(
         BigInteger,
         Computed(
@@ -87,24 +88,45 @@ class Enrollment(Base):
             persisted=True,
         ),
     )
-    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'active'"))
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'active'"))
     starts_on: Mapped[date] = mapped_column(Date, nullable=False)
     ends_on: Mapped[date | None] = mapped_column(Date)
     created_by: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey(
-            "internship_management.admins.admin_id",
+            f"{DATABASE_SCHEMA}.admins.admin_id",
             name="fk_enrollments_created_by_admins",
             ondelete="RESTRICT",
         ),
         nullable=False,
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.current_timestamp()
+        UTCDateTime(), nullable=False, server_default=func.current_timestamp()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
+        UTCDateTime(),
         nullable=False,
         server_default=func.current_timestamp(),
         onupdate=func.current_timestamp(),
+    )
+    student: Mapped["Student"] = relationship("Student", back_populates="enrollments")
+    program: Mapped["InternshipProgram"] = relationship("InternshipProgram", back_populates="enrollments")
+    batch: Mapped["Batch"] = relationship(
+        "Batch",
+        primaryjoin=(
+            "and_(foreign(Enrollment.batch_id) == Batch.batch_id, "
+            "Enrollment.program_id == Batch.program_id)"
+        ),
+        back_populates="enrollments",
+        viewonly=True,
+    )
+    fee_terms: Mapped[list["EnrollmentFeeTerm"]] = relationship(
+        "EnrollmentFeeTerm", back_populates="enrollment"
+    )
+    payments: Mapped[list["Payment"]] = relationship("Payment", back_populates="enrollment")
+    project_assignments: Mapped[list["ProjectAssignment"]] = relationship(
+        "ProjectAssignment", back_populates="enrollment"
+    )
+    certificates: Mapped[list["Certificate"]] = relationship(
+        "Certificate", back_populates="enrollment"
     )

@@ -10,7 +10,19 @@
 | Currency | INR only in this MVP design |
 | Status | Presented for database-design approval |
 
-This is a database design only. It does not implement API endpoints, React components, or ORM models. The executable baseline DDL, integrity triggers, derived views, and safe sample fixtures are in [`database/schema.sql`](../database/schema.sql). This document contains the rationale, logical contract, and report SQL. The provided SQL has not been executed because PostgreSQL tooling/server access is unavailable in the current workspace; it requires PostgreSQL validation before adoption as Alembic migrations.
+This document remains the original PostgreSQL design draft; it is not the active schema specification. The application currently uses MySQL and Alembic, and `database/schema.sql` is not executable against that database. The MySQL ORM and Alembic revisions are authoritative for the running application.
+
+### Current MySQL implementation overlay
+
+The forward-only Alembic revision `0009` is implemented in code but has **not** been applied to the shared database. After it is separately approved and applied, the active application behavior is:
+
+- Student, program, batch, enrollment, project, and certificate business numbers are generated transactionally using `business_number_counters`. Formats are `STU-YYYY-000001`, `PRG-YYYY-0001`, `BAT-YYYY-0001`, `ENR-YYYY-000001`, `PRJ-YYYY-0001`, and `CERT-YYYY-000001` (`YYYY` is the UTC calendar year). Legacy values are preserved.
+- Students have nullable `address`, `city`, `state`, `postal_code`, `institution_name`, `course`, and `internship_domain` profile fields.
+- Programs have a positive `duration_months` for new/updated records. Historical values remain null until an Admin supplies them.
+- Batch codes are unique across programs. Every enrollment must reference a batch belonging to its program; the create API accepts `student_id` and `batch_id` and derives `program_id`.
+- Before changing the schema, the revision checks for enrollments without a batch, missing or mismatched batch/program links, and duplicate batch codes. It stops with an explicit error instead of guessing how to repair those records.
+
+The sections below retain the proposed PostgreSQL logical/physical design for historical context and must not be treated as an exact description of the current MySQL schema.
 
 ## 1. Design Goals and Principles
 
@@ -340,7 +352,7 @@ ORDER BY c.issued_at DESC, c.certificate_number;
 - Fee structures are program-level templates; every enrollment has an agreed fee-term snapshot. A current fee term is required at commit.
 - One active enrollment for a given student/program/batch tuple is allowed; completed participation may be repeated. Concurrent enrollment in distinct batches is not prohibited by the schema.
 - Batch capacity is an additive Sprint 4 field; null means unlimited, and only active enrollments count toward it.
-- Enrollment statuses are created as `active`; allowed transitions are `active` to `completed`, `withdrawn`, or `cancelled`. Terminal statuses cannot be reactivated. Student/program/batch identity and enrollment dates are immutable via this API after creation; no delete endpoint exists.
+- Enrollment statuses are created as `active`; allowed transitions are `active` to `completed`, `withdrawn`, or `cancelled`. Terminal statuses cannot be reactivated. Student/program/batch identity and enrollment dates are immutable via this API after creation. Permanent deletion is guarded by linked-history checks and restrictive foreign keys; normal enrollments retain their initial fee term and cannot be deleted.
 - Program status transitions implemented for this API are `draft` to `active`/`inactive`, `active` to `inactive`, and `inactive` to `active`. Batch transitions are `planned` to `active`/`cancelled` and `active` to `completed`/`cancelled`.
 - Project assignments are many-to-many so a shared project can be associated with multiple enrollments. If projects are strictly per-enrollment, this remains a valid but more flexible relation.
 - Certificate documents, if later supported, are referenced by private storage URI; file bytes are not stored in PostgreSQL.

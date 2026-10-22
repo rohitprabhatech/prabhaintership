@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, UserRound } from 'lucide-react'
+import { Plus, Trash2, UserRound } from 'lucide-react'
 import { useAuth } from '../auth/AuthProvider.jsx'
 import ConfirmDialog from '../components/ConfirmDialog.jsx'
+import LifecycleDeleteDialog from '../components/LifecycleDeleteDialog.jsx'
 import { Button, DataTable, EmptyState, ErrorState, LoadingState, Modal, StatusBadge, TextField } from '../components/ui.jsx'
 import { apiRequest } from '../lib/api.js'
 import { getAllPages } from '../lib/adminData.js'
@@ -19,7 +20,7 @@ function EnrollmentForm({ students, programs, batches, token, onClose, onSaved }
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [confirmation, setConfirmation] = useState(null)
-  const [values, setValues] = useState({ enrollment_number: '', student_id: '', program_id: '', batch_id: '', starts_on: '', ends_on: '', agreed_fee_amount: '', fee_reason: 'Initial agreed fee' })
+  const [values, setValues] = useState({ student_id: '', program_id: '', batch_id: '', starts_on: '', ends_on: '', agreed_fee_amount: '', fee_reason: 'Initial agreed fee' })
 
   function change(event) {
     setValues((current) => ({ ...current, [event.target.name]: event.target.value }))
@@ -28,7 +29,7 @@ function EnrollmentForm({ students, programs, batches, token, onClose, onSaved }
   function submit(event) {
     event.preventDefault()
     if (submittingRef.current) return
-    if (!values.enrollment_number.trim() || !values.student_id || !values.program_id || !values.starts_on || !validAmount(values.agreed_fee_amount)) {
+    if (!values.student_id || !values.program_id || !values.batch_id || !values.starts_on || !validAmount(values.agreed_fee_amount)) {
       setError('Complete the required fields. The agreed fee must be positive and use at most two decimal places.')
       return
     }
@@ -42,12 +43,9 @@ function EnrollmentForm({ students, programs, batches, token, onClose, onSaved }
     }
     setError('')
     setConfirmation({
-      enrollment_number: values.enrollment_number.trim(),
       payload: {
-        enrollment_number: values.enrollment_number.trim(),
         student_id: Number(values.student_id),
-        program_id: Number(values.program_id),
-        batch_id: values.batch_id ? Number(values.batch_id) : null,
+        batch_id: Number(values.batch_id),
         starts_on: values.starts_on,
         ends_on: values.ends_on || null,
         agreed_fee_amount: values.agreed_fee_amount,
@@ -77,17 +75,16 @@ function EnrollmentForm({ students, programs, batches, token, onClose, onSaved }
     <Modal title="Create enrollment" onClose={submitting ? () => {} : onClose}>
       <form onSubmit={submit} noValidate className="grid gap-4">
         {error && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900">{error}</p>}
-        <TextField id="enrollment-number" name="enrollment_number" label="Enrollment number" maxLength={64} required value={values.enrollment_number} onChange={change} />
         <div className="grid gap-1.5"><label htmlFor="enrollment-student" className="text-sm font-semibold text-ink">Active student</label><select id="enrollment-student" name="student_id" required value={values.student_id} onChange={change} className="min-h-11 rounded-md border border-line bg-white px-3 text-sm"><option value="">Select a student</option>{students.map((student) => <option key={student.student_id} value={student.student_id}>{student.student_number} · {student.full_name}</option>)}</select></div>
         <div className="grid gap-1.5"><label htmlFor="enrollment-program" className="text-sm font-semibold text-ink">Active program</label><select id="enrollment-program" name="program_id" required value={values.program_id} onChange={(event) => { change(event); setValues((current) => ({ ...current, batch_id: '' })) }} className="min-h-11 rounded-md border border-line bg-white px-3 text-sm"><option value="">Select a program</option>{programs.map((program) => <option key={program.program_id} value={program.program_id}>{program.program_code} · {program.name}</option>)}</select></div>
-        <div className="grid gap-1.5"><label htmlFor="enrollment-batch" className="text-sm font-semibold text-ink">Eligible active batch <span className="font-normal text-muted">(optional)</span></label><select id="enrollment-batch" name="batch_id" value={values.batch_id} onChange={change} className="min-h-11 rounded-md border border-line bg-white px-3 text-sm"><option value="">No batch</option>{batches.filter((batch) => !values.program_id || String(batch.program_id) === values.program_id).map((batch) => <option key={batch.batch_id} value={batch.batch_id}>{batch.batch_code} · {batch.name}</option>)}</select></div>
+        <div className="grid gap-1.5"><label htmlFor="enrollment-batch" className="text-sm font-semibold text-ink">Eligible batch</label><select id="enrollment-batch" name="batch_id" required value={values.batch_id} onChange={change} className="min-h-11 rounded-md border border-line bg-white px-3 text-sm"><option value="">Select a batch</option>{batches.filter((batch) => (!values.program_id || String(batch.program_id) === values.program_id) && ['planned', 'active'].includes(batch.status)).map((batch) => <option key={batch.batch_id} value={batch.batch_id}>{batch.batch_code} · {batch.name}</option>)}</select></div>
         <div className="grid gap-4 sm:grid-cols-2"><TextField id="enrollment-start" name="starts_on" label="Starts on" type="date" required value={values.starts_on} onChange={change} /><TextField id="enrollment-end" name="ends_on" label="Ends on" type="date" value={values.ends_on} onChange={change} /></div>
         <TextField id="enrollment-fee" name="agreed_fee_amount" label="Initial agreed fee (INR)" inputMode="decimal" placeholder="25000.00" hint="Use a decimal string with up to two decimal places." value={values.agreed_fee_amount} onChange={change} required />
         <TextField id="fee-reason" name="fee_reason" label="Initial fee reason" maxLength={500} value={values.fee_reason} onChange={change} />
         <p className="text-xs leading-5 text-muted">Creating an enrollment also records its initial fee term atomically.</p>
         <div className="flex justify-end gap-2 border-t border-line pt-4"><Button type="button" variant="secondary" onClick={onClose} disabled={submitting}>Cancel</Button><Button type="submit" disabled={submitting || !students.length || !programs.length}>{submitting ? 'Creating…' : 'Review enrollment'}</Button></div>
       </form>
-      {confirmation && <ConfirmDialog title="Create this enrollment?" message={`This will create ${confirmation.enrollment_number} and record its initial agreed fee. The enrollment's student, program, and dates cannot be edited later.`} confirmLabel="Create enrollment" busy={submitting} onCancel={() => setConfirmation(null)} onConfirm={confirmCreate} />}
+      {confirmation && <ConfirmDialog title="Create this enrollment?" message="A unique enrollment number will be generated. This will also record the initial agreed fee; the student's batch, program, and dates cannot be edited later." confirmLabel="Create enrollment" busy={submitting} onCancel={() => setConfirmation(null)} onConfirm={confirmCreate} />}
     </Modal>
   )
 }
@@ -110,6 +107,7 @@ export default function EnrollmentsPage() {
   const [showForm, setShowForm] = useState(false)
   const [pendingTransition, setPendingTransition] = useState(null)
   const [transitionBusy, setTransitionBusy] = useState(false)
+  const [deleteEnrollment, setDeleteEnrollment] = useState(null)
   const [success, setSuccess] = useState('')
 
   useEffect(() => {
@@ -138,11 +136,11 @@ export default function EnrollmentsPage() {
   const programById = new Map(programs.map((program) => [program.program_id, program]))
   const batchById = new Map(batches.map((batch) => [batch.batch_id, batch]))
 
-  async function transition() {
+  async function transition(reason) {
     if (!pendingTransition || transitionBusy) return
     setTransitionBusy(true)
     try {
-      const result = await apiRequest(`enrollments/${pendingTransition.enrollment_id}/status`, { token, method: 'PATCH', body: JSON.stringify({ status: pendingTransition.status }) })
+      const result = await apiRequest(`enrollments/${pendingTransition.enrollment_id}/status`, { token, method: 'PATCH', body: JSON.stringify({ status: pendingTransition.status, ...(reason ? { reason } : {}) }) })
       setSuccess(`${result.enrollment_number} marked ${result.status}.`)
       setPendingTransition(null)
       setReloadKey((key) => key + 1)
@@ -168,7 +166,7 @@ export default function EnrollmentsPage() {
     { key: 'batch', label: 'Batch', render: (row) => row.batch_id ? batchById.get(row.batch_id)?.name || `Batch ${row.batch_id}` : '—' },
     { key: 'schedule', label: 'Dates', render: (row) => `${row.starts_on}${row.ends_on ? ` to ${row.ends_on}` : ''}` },
     { key: 'status', label: 'Status', render: (row) => <StatusBadge status={row.status} /> },
-    { key: 'actions', label: 'Actions', render: (row) => row.status === 'active' ? <div className="flex flex-wrap gap-1">{terminalStatuses.map((nextStatus) => <Button key={nextStatus} variant="quiet" className="min-h-8 px-2 text-xs capitalize" onClick={() => setPendingTransition({ ...row, status: nextStatus })}>{nextStatus}</Button>)}</div> : '—' },
+    { key: 'actions', label: 'Actions', render: (row) => <div className="flex flex-wrap gap-1">{row.status === 'active' && terminalStatuses.map((nextStatus) => <Button key={nextStatus} variant="quiet" className="min-h-8 px-2 text-xs capitalize" onClick={() => setPendingTransition({ ...row, status: nextStatus })}>{nextStatus}</Button>)}<Button variant="quiet" className="min-h-8 px-2 text-red-700" aria-label={`Delete ${row.enrollment_number}`} onClick={() => setDeleteEnrollment(row)}><Trash2 aria-hidden="true" className="h-4 w-4" /></Button></div> },
   ]
 
   return (
@@ -186,7 +184,8 @@ export default function EnrollmentsPage() {
         <><div className="mb-3 flex justify-between text-sm text-muted"><span>{data.total.toLocaleString('en-IN')} enrollments</span><span>Page {data.page} of {data.pages}</span></div><DataTable columns={columns} rows={data.items} getRowKey={(row) => row.enrollment_id} caption="Enrollment records" /><div className="mt-4 flex justify-between"><Button variant="secondary" disabled={page <= 1 || loading} onClick={() => setPage((value) => value - 1)}>Previous</Button><Button variant="secondary" disabled={page >= data.pages || loading} onClick={() => setPage((value) => value + 1)}>Next</Button></div></>
       )}
       {showForm && <EnrollmentForm students={students} programs={programs.filter((program) => program.status === 'active')} batches={batches.filter((batch) => batch.status === 'active')} token={token} onClose={() => setShowForm(false)} onSaved={created} />}
-      {pendingTransition && <ConfirmDialog title={`Mark ${pendingTransition.enrollment_number} ${pendingTransition.status}?`} message={`This changes the enrollment to ${pendingTransition.status}. Terminal enrollment states cannot be reactivated.`} confirmLabel={`Mark ${pendingTransition.status}`} busy={transitionBusy} onCancel={() => setPendingTransition(null)} onConfirm={transition} />}
+      {pendingTransition && <ConfirmDialog title={`Mark ${pendingTransition.enrollment_number} ${pendingTransition.status}?`} message={`This changes the enrollment to ${pendingTransition.status}. Terminal enrollment states cannot be reactivated and financial history will not be changed.`} confirmLabel={`Mark ${pendingTransition.status}`} reasonRequired={['cancelled', 'withdrawn'].includes(pendingTransition.status)} reasonLabel={`Reason for ${pendingTransition.status}`} busy={transitionBusy} onCancel={() => setPendingTransition(null)} onConfirm={transition} />}
+      {deleteEnrollment && <LifecycleDeleteDialog resourcePath={`enrollments/${deleteEnrollment.enrollment_id}`} resourceLabel="enrollment" identifier={deleteEnrollment.enrollment_number} token={token} onCancel={() => setDeleteEnrollment(null)} onDeleted={() => { setSuccess(`${deleteEnrollment.enrollment_number} deleted.`); setDeleteEnrollment(null); setReloadKey((key) => key + 1) }} />}
     </div>
   )
 }

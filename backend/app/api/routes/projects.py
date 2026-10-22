@@ -1,7 +1,7 @@
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Path, Query, Request, status
+from fastapi import APIRouter, Depends, Path, Query, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_admin
@@ -13,16 +13,22 @@ from app.schemas.finance import (
     ProjectAssignmentResponse,
     ProjectAssignmentStatusUpdate,
     ProjectCreate,
+    ProjectDelete,
     ProjectPage,
     ProjectResponse,
+    ProjectStatusUpdate,
 )
+from app.schemas.lifecycle import DependencySummary
 from app.services.project_service import (
     create_assignment,
     create_project,
+    delete_project,
     get_project,
     list_assignments,
     list_projects,
+    project_dependencies,
     update_assignment_status,
+    update_project_status,
 )
 
 router = APIRouter(tags=["projects"], dependencies=[Depends(get_current_admin)])
@@ -65,6 +71,39 @@ def get_project_endpoint(
     project_id: Annotated[int, Path(gt=0)], session: Session = Depends(get_db)
 ) -> ProjectResponse:
     return get_project(session, project_id)
+
+
+@router.patch("/projects/{project_id}/status", response_model=ProjectResponse)
+def update_project_status_endpoint(
+    project_id: Annotated[int, Path(gt=0)],
+    payload: ProjectStatusUpdate,
+    request: Request,
+    session: Session = Depends(get_db),
+    admin: Admin = Depends(get_current_admin),
+) -> ProjectResponse:
+    return update_project_status(
+        session, project_id, payload, admin.admin_id, _request_id(request)
+    )
+
+
+@router.get("/projects/{project_id}/dependencies", response_model=DependencySummary)
+def project_dependencies_endpoint(
+    project_id: Annotated[int, Path(gt=0)],
+    session: Session = Depends(get_db),
+) -> DependencySummary:
+    return project_dependencies(session, project_id)
+
+
+@router.delete("/projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_project_endpoint(
+    project_id: Annotated[int, Path(gt=0)],
+    payload: ProjectDelete,
+    request: Request,
+    session: Session = Depends(get_db),
+    admin: Admin = Depends(get_current_admin),
+) -> Response:
+    delete_project(session, project_id, payload, admin.admin_id, _request_id(request))
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post(

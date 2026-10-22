@@ -1,9 +1,12 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import AnyHttpUrl, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL, make_url
+
+_BACKEND_ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
 
 
 def _mysql_url(host: str, port: int, database: str, username: str, password: str) -> URL:
@@ -19,7 +22,7 @@ def _mysql_url(host: str, port: int, database: str, username: str, password: str
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_BACKEND_ENV_FILE,
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
@@ -54,9 +57,11 @@ class Settings(BaseSettings):
 
     @property
     def database_connect_args(self) -> dict:
+        args = {"init_command": "SET time_zone = '+00:00'"}
         if not self.db_ssl_ca:
-            return {}
-        return {"ssl": {"ca": self.db_ssl_ca, "check_hostname": True}}
+            return args
+        args["ssl"] = {"ca": self.db_ssl_ca, "check_hostname": True}
+        return args
 
     @field_validator("jwt_secret_key")
     @classmethod
@@ -105,7 +110,7 @@ class Settings(BaseSettings):
 
 class MigrationSettings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_BACKEND_ENV_FILE,
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
@@ -123,6 +128,8 @@ class MigrationSettings(BaseSettings):
     migration_db_name: str | None = None
     migration_db_user: str | None = None
     migration_db_password: SecretStr | None = None
+    db_ssl_ca: str | None = None
+    migration_db_ssl_ca: str | None = None
 
     @field_validator("migration_database_url")
     @classmethod
@@ -150,6 +157,7 @@ class MigrationSettings(BaseSettings):
                 self.migration_db_user,
                 self.migration_db_password.get_secret_value(),
             )
+
         if self.app_env == "production":
             raise ValueError("Separate MIGRATION_DB_* settings are required in production")
         return _mysql_url(
@@ -160,10 +168,20 @@ class MigrationSettings(BaseSettings):
             self.db_password.get_secret_value(),
         )
 
+    @property
+    def database_connect_args(self) -> dict:
+        args = {"init_command": "SET time_zone = '+00:00'"}
+        ca_path = self.migration_db_ssl_ca or self.db_ssl_ca
+        if ca_path:
+            args["ssl"] = {"ca": ca_path, "check_hostname": True}
+        elif self.app_env == "production":
+            raise ValueError("MIGRATION_DB_SSL_CA is required for production MySQL migrations")
+        return args
+
 
 class AdminProvisioningSettings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_BACKEND_ENV_FILE,
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
@@ -180,6 +198,8 @@ class AdminProvisioningSettings(BaseSettings):
     admin_provisioning_db_name: str | None = None
     admin_provisioning_db_user: str | None = None
     admin_provisioning_db_password: SecretStr | None = None
+    db_ssl_ca: str | None = None
+    admin_provisioning_db_ssl_ca: str | None = None
 
     @model_validator(mode="after")
     def validate_provisioner(self) -> "AdminProvisioningSettings":
@@ -196,6 +216,10 @@ class AdminProvisioningSettings(BaseSettings):
             raise ValueError("All ADMIN_PROVISIONING_DB_* settings must be provided together")
         if self.app_env == "production" and not all(value is not None for value in values):
             raise ValueError("Separate ADMIN_PROVISIONING_DB_* settings are required in production")
+        if self.app_env == "production" and not (
+            self.admin_provisioning_db_ssl_ca or self.db_ssl_ca
+        ):
+            raise ValueError("ADMIN_PROVISIONING_DB_SSL_CA is required for production MySQL TLS")
         return self
 
     @property
@@ -206,6 +230,14 @@ class AdminProvisioningSettings(BaseSettings):
         username = self.admin_provisioning_db_user or self.db_user
         password = self.admin_provisioning_db_password or self.db_password
         return _mysql_url(host, port, database, username, password.get_secret_value())
+
+    @property
+    def database_connect_args(self) -> dict:
+        args = {"init_command": "SET time_zone = '+00:00'"}
+        ca_path = self.admin_provisioning_db_ssl_ca or self.db_ssl_ca
+        if ca_path:
+            args["ssl"] = {"ca": ca_path, "check_hostname": True}
+        return args
 
 
 @lru_cache

@@ -19,6 +19,7 @@ from app.schemas.finance import (
     CertificateReportPage,
     CertificateResponse,
 )
+from app.services.business_number_service import generate_business_number
 
 
 def list_certificates(
@@ -71,7 +72,7 @@ def issue_certificate(
         raise APIError(422, "timezone_required", "Certificate issue time must include a timezone")
     certificate = Certificate(
         enrollment_id=enrollment.enrollment_id,
-        certificate_number=payload.certificate_number,
+        certificate_number=generate_business_number(session, "certificate"),
         certificate_type=payload.certificate_type,
         issued_at=issued_at,
         document_uri=payload.document_uri,
@@ -117,7 +118,7 @@ def replace_certificate(
 
     replacement = Certificate(
         enrollment_id=original.enrollment_id,
-        certificate_number=payload.certificate_number,
+        certificate_number=generate_business_number(session, "certificate"),
         certificate_type=original.certificate_type,
         issued_at=issued_at,
         document_uri=payload.document_uri,

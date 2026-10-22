@@ -1,6 +1,7 @@
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
+from app.db.base import mysql_qualified_name
 from app.models.enrollment import Enrollment
 from app.models.enrollment_fee_term import EnrollmentFeeTerm
 from app.models.fee_adjustment import FeeAdjustment
@@ -24,7 +25,7 @@ class FinanceRepository:
                 text(
                     "SELECT enrollment_id, enrollment_number, fee_term_id, fee_amount, "
                     "adjustments_total, effective_fee, currency, net_paid, pending_balance "
-                    "FROM internship_management.v_enrollment_balances "
+                    f"FROM {mysql_qualified_name('v_enrollment_balances')} "
                     "WHERE enrollment_id = :enrollment_id"
                 ),
                 {"enrollment_id": enrollment_id},
@@ -87,7 +88,7 @@ class FinanceRepository:
     def list_payments(self, enrollment_id: int, *, page: int, page_size: int):
         count = self.session.execute(
             text(
-                "SELECT count(*) FROM internship_management.v_payment_status "
+                f"SELECT count(*) FROM {mysql_qualified_name('v_payment_status')} "
                 "WHERE enrollment_id = :enrollment_id"
             ),
             {"enrollment_id": enrollment_id},
@@ -97,10 +98,10 @@ class FinanceRepository:
                 text(
                     "SELECT payment_id, enrollment_id, amount, currency, paid_at, payment_method, "
                     "payment_reference, recorded_by, created_at, adjusted_amount, net_amount, "
-                    "derived_status FROM internship_management.v_payment_status "
+                    f"derived_status FROM {mysql_qualified_name('v_payment_status')} "
                     "WHERE enrollment_id = :enrollment_id "
                     "ORDER BY paid_at DESC, payment_id DESC "
-                    "OFFSET :offset LIMIT :limit"
+                    "LIMIT :limit OFFSET :offset"
                 ),
                 {
                     "enrollment_id": enrollment_id,
@@ -119,7 +120,7 @@ class FinanceRepository:
                 text(
                     "SELECT payment_id, enrollment_id, amount, currency, paid_at, payment_method, "
                     "payment_reference, recorded_by, created_at, adjusted_amount, net_amount, "
-                    "derived_status FROM internship_management.v_payment_status "
+                    f"derived_status FROM {mysql_qualified_name('v_payment_status')} "
                     "WHERE payment_id = :payment_id"
                 ),
                 {"payment_id": payment_id},
